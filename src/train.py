@@ -119,8 +119,6 @@ def main():
         # train
         objs = utils.AvgrageMeter()
         model.train()
-        if args.save:
-            writer.add_scalar("lr", optimizer.param_groups[0]["lr"])
         
         for step, data in enumerate(train_queue):
             image, caption = data
@@ -144,7 +142,8 @@ def main():
                     )
         if args.save:
             writer.add_scalar("LossEpoch/train", objs.avg, epoch)
-        
+            writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch)
+            
         train_obj = objs.avg    
         logging.info(f"[train] loss {train_obj:f}")
         scheduler.step()
