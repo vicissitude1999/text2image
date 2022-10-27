@@ -1,14 +1,10 @@
-import torch.autograd as autograd
-import torch
-from config import *
-import numpy as np
-import matplotlib.pyplot as plt
+import os
 import shutil
 
-def Variable(data, *args, **kwargs):
-    if USE_CUDA:
-        data = data.cuda()
-    return autograd.Variable(data,*args, **kwargs)
+import numpy as np
+import matplotlib.pyplot as plt
+
+import torch
 
 def unit_prefix(x, n=1):
     for i in range(n): x = x.unsqueeze(0)

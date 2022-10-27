@@ -15,12 +15,13 @@
     ],
     "seed": 5,
     "validateAfter": 3,
-    "save": false,
+    "save": true,
     "savedir": "outputs/",
     "lr": 0.001,
     "epochs": 150,
     "batch_size": 100,
+    "report_freq": 20,
     "reduceLRAfter": 110,
     "pathToWeights": "None",
-    "datadir": "../data"
+    "datadir": "data/"
 }

@@ -1,5 +1,6 @@
 import argparse
 import glob
+import time
 import json
 import logging
 import os
@@ -64,6 +65,7 @@ def main():
     
     # output directory
     if args.save:
+        args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
         utils.create_exp_dir(args.savedir, scripts_to_save=None)
         with open(Path(args.savedir, "args.json"), "w") as f:
             json.dump(args, f)
@@ -76,11 +78,11 @@ def main():
         datefmt="%m/%d %I:%M:%S %p",
     )
     if args.save:
-        fh = logging.FileHandler(Path(args.save, "log.txt"), "w")
+        fh = logging.FileHandler(Path(args.savedir, "log.txt"), "w")
         fh.setFormatter(logging.Formatter(log_format))
         logging.getLogger().addHandler(fh)
         # tensorboard
-        writer = SummaryWriter(args.save)
+        writer = SummaryWriter(args.savedir)
         
     banned = [randint(0, 10) for i in range(12)]
     train_data = MNISTCaptions(datadir=args.datadir, banned=banned, train=True)
@@ -134,7 +136,7 @@ def main():
             n = caption.size(0)
             objs.update(loss.item(), n)
 
-            if step % 10 == 0:
+            if step % args.report_freq == 0:
                 logging.info(f"train {step:03d} loss {objs.avg:f}")
                 if args.save:
                     writer.add_scalar(
