@@ -148,23 +148,22 @@ def main():
         logging.info(f"[train] loss {train_obj:f}")
         scheduler.step()
 
-    is_best = False
-    if train_obj < best_obj:
-        best_obj = train_obj
-        is_best = True
-
-    # save checkpoint
-    utils.save_checkpoint(
-        {
-            "epoch": epoch,
-            "best_obj": best_obj,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict()
-        },
-        is_best,
-        args.save,
-    )
+        # save checkpoint
+        is_best = False
+        if train_obj < best_obj:
+            best_obj = train_obj
+            is_best = True
+        utils.save_checkpoint(
+            {
+                "epoch": epoch,
+                "best_obj": best_obj,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict()
+            },
+            is_best,
+            args.savedir,
+        )
 
 
 if __name__ == "__main__":
