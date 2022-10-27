@@ -1,0 +1,1 @@
+python src/train.py tools/mnist-captions.json
