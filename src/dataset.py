@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset
-from torchvision import datasets
+from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 
@@ -37,9 +37,10 @@ class MNISTCaptions(Dataset):
             ".": 21,
         }
         self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
-
-        mnist = datasets.MNIST(datadir, train=train, download=True)  # [PIL, tensor]
-        self.data = mnist.data.numpy()  # 28 * 28
+        
+        # may use transforms.ToTensor to convert PIL to 0-1 tensor
+        mnist = datasets.MNIST(datadir, train=train, download=True)
+        self.data = mnist.data.numpy() / 255  # 28 * 28, 0 - 255
         self.targets = mnist.targets.numpy()
         self.size = size
 

@@ -61,7 +61,7 @@ class AlignDraw(nn.Module):
         self.w_dec_attn = nn.Linear(dimRNNDec, 5)
         self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
 
-        # records of canvas matrices, and mu, logvars (used to compute loss)
+        # records of canvas matrices, and mu, logvars (used to 0compute loss)
         self.cs = [0] * self.T
         self.mus, self.logvars = [0] * self.T, [0] * self.T
         self.mus_prior, self.logvars_prior = [0] * self.T, [0] * self.T
@@ -163,17 +163,17 @@ class AlignDraw(nn.Module):
             # The implementation of the official repo seems to be the following equation. I think it's wrong.
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
             
-            kl = 0.5 * (
-                torch.sum(
-                    (
-                        (self.mus[t] - self.mus_prior[t]) ** 2
-                        + torch.exp(self.logvars[t])
-                    )
-                    / torch.exp(self.logvars_prior[t])
-                    - (self.logvars[t] - self.logvars_prior[t])
-                )
-                - self.T
-            )
+            # kl = 0.5 * (
+            #     torch.sum(
+            #         (
+            #             (self.mus[t] - self.mus_prior[t]) ** 2
+            #             + torch.exp(self.logvars[t])
+            #         )
+            #         / torch.exp(self.logvars_prior[t])
+            #         - (self.logvars[t] - self.logvars_prior[t])
+            #     )
+            #     - self.T
+            # )
 
             # I think the following is correct.
             # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
@@ -181,18 +181,19 @@ class AlignDraw(nn.Module):
 
             # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
             # the former 2 is called kl loss, and the last is reconstruction loss
-            # kl = 0.5 * (
-            #     torch.sum(
-            #         (self.mus[t] - self.mus_prior[t]) ** 2
-            #         + torch.exp(self.logvars[t] - self.logvars_prior[t])
-            #         - (self.logvars[t] - self.logvars_prior[t])
-            #     )
-            #     - self.T
-            # )
+            kl = 0.5 * (
+                torch.sum(
+                    (self.mus[t] - self.mus_prior[t]) ** 2
+                    + torch.exp(self.logvars[t] - self.logvars_prior[t])
+                    - (self.logvars[t] - self.logvars_prior[t])
+                )
+                - self.T
+            )
 
             Lz += kl
         Lz = torch.mean(Lz)
-
+        
+        print(f"recons loss {Lx.item()} kl loss {Lz.item()}")
         return Lx + Lz
 
     def generate(self, caption, batch_size):
