@@ -10,6 +10,8 @@ from random import randint
 import shutil
 
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from pathlib import Path
 from addict import Dict
 
@@ -20,7 +22,7 @@ import torch.utils
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import MNISTCaptions
+from dataset import MNISTCaptions, Captions
 from model import AlignDraw
 import utils
 
@@ -52,7 +54,7 @@ def initialize_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.normal_(m.weight.data, 0, 0.01)
         nn.init.constant_(m.bias.data, 0)
-        
+
 
 def main():
     if not torch.cuda.is_available():
@@ -62,7 +64,7 @@ def main():
     print(args)
     init_seeds(args.seed, False)
     device = "cuda"
-    
+
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
@@ -83,9 +85,10 @@ def main():
         logging.getLogger().addHandler(fh)
         # tensorboard
         writer = SummaryWriter(args.savedir)
-        
+
+    # create dataset
     banned = [randint(0, 10) for i in range(12)]
-    train_data = MNISTCaptions(datadir=args.datadir, banned=banned, train=True)
+    train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True)
     train_queue = DataLoader(
         dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False
     )
@@ -102,10 +105,10 @@ def main():
         args.model[0].dimZ,
         args.model[0].dimRNNDec,
         args.model[0].dimAlign,
-        device
+        args.channels,
+        device,
     ).to(device)
     model.apply(initialize_weights)
-    
 
     optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -115,11 +118,11 @@ def main():
     best_obj = float("inf")
     for epoch in range(args.epochs):
         logging.info(f"epoch {epoch:d}")
-        
+
         # train
         objs = utils.AvgrageMeter()
         model.train()
-        
+
         for step, data in enumerate(train_queue):
             image, caption = data
             image = image.to(device, non_blocking=True)
@@ -143,8 +146,8 @@ def main():
         if args.save:
             writer.add_scalar("LossEpoch/train", objs.avg, epoch)
             writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch)
-            
-        train_obj = objs.avg    
+
+        train_obj = objs.avg
         logging.info(f"[train] loss {train_obj:f}")
         scheduler.step()
 
@@ -159,11 +162,34 @@ def main():
                 "best_obj": best_obj,
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict()
+                "scheduler": scheduler.state_dict(),
             },
             is_best,
             args.savedir,
         )
+
+        # generate images
+        # with torch.no_grad():
+        #     batch_size = 64
+        #     # only banned, size matter for captions
+        #     caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
+        #     caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
+        #     for step, data in enumerate(caption_queue):
+        #         data = data.to(device)
+        #         x = model.generate(data, batch_size)
+                
+        #         fig = plt.figure(figsize=(16, 16))
+        #         plt.axis("off")
+        #         ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+        #         anim = animation.ArtistAnimation(
+        #             fig, ims, interval=500, repeat_delay=1000, blit=True
+        #         )
+        #         anim.save(
+        #             Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
+        #             dpi=100,
+        #             writer="imagemagick",
+        #         )
+        #         plt.close("all")
 
 
 if __name__ == "__main__":

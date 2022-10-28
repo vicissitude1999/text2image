@@ -3,7 +3,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.utils as vutils
 
+from dataset import Captions
 import utils
 
 # dimY, dimLangRNN: caption encoding
@@ -24,10 +26,13 @@ class AlignDraw(nn.Module):
         dimZ,
         dimRNNDec,
         dimAlign,
+        channels,
         device,
     ):
         super().__init__()
         self.device = device
+        self.channels = channels
+        
         self.T = runSteps
         self.A = int(math.sqrt(dimX))
         self.B = int(math.sqrt(dimX))
@@ -53,8 +58,8 @@ class AlignDraw(nn.Module):
         self.w_v_align = nn.Linear(dimAlign, 1)
 
         self.decoder = nn.LSTMCell(dimZ + 2 * dimLangRNN, dimRNNDec)
-        self.dec_linear = nn.Linear(dimRNNDec, 5)
-        self.dec_w_linear = nn.Linear(dimRNNDec, self.N * self.N)
+        self.w_dec_attn = nn.Linear(dimRNNDec, 5)
+        self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
 
         # records of canvas matrices, and mu, logvars (used to compute loss)
         self.cs = [0] * self.T
@@ -184,23 +189,23 @@ class AlignDraw(nn.Module):
         
         return Lx + Lz
     
-    def generate(self, caption, batch_size=64):
-        # self.batch_size = batchsize
+    def generate(self, caption, batch_size):
+        self.batch_size = batch_size
         h_dec_prev = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
         dec_state = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
 
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
-
+        
         s_t = self.alignment(h_dec_prev, caption)
 
         for t in range(self.T):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A, self.B, device=self.device)
+                else torch.zeros(batch_size, self.A*self.B, device=self.device)
             )
-            z_t = mu_prior + torch.exp(1 / 2 * logvar_prior) * torch.randn_like(
+            z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(
                 mu_prior
             )
             h_dec, dec_state = self.decoder(
@@ -212,14 +217,15 @@ class AlignDraw(nn.Module):
 
         imgs = []
         for img in self.cs:
-            img = img.view(-1, self.B, self.A)
-            imgs.append(torch.sigmoid(img).detach().cpu().numpy())
+            img = torch.sigmoid(img.detach().cpu().view(-1, 1, self.B, self.A))
+            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
+            imgs.append(grid)
 
         return imgs
 
     ######## write
     def write(self, h_dec=0):
-        w = self.dec_w_linear(h_dec)
+        w = self.w_dec(h_dec)
         w = w.view(self.batch_size, self.N, self.N)
         # w = Variable(torch.ones(4,5,5) * 3)
         # self.batch_size = 4
@@ -251,7 +257,7 @@ class AlignDraw(nn.Module):
 
     ########## attention
     def attn_window(self, h_dec):
-        params = self.dec_linear(h_dec)
+        params = self.w_dec_attn(h_dec)
         gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
 
         gx = (self.A + 1) / 2 * (gx_ + 1)  # 22
