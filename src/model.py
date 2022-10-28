@@ -32,7 +32,7 @@ class AlignDraw(nn.Module):
         super().__init__()
         self.device = device
         self.channels = channels
-        
+
         self.T = runSteps
         self.A = int(math.sqrt(dimX))
         self.B = int(math.sqrt(dimX))
@@ -103,15 +103,13 @@ class AlignDraw(nn.Module):
         self.batch_size = batch_size
 
         # lstm encoder parts
-        h_enc_prev = torch.zeros(batch_size, self.dimRNNEnc, device=self.device)
-        h_dec_prev = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
-        enc_state = torch.zeros(
-            batch_size, self.dimRNNEnc, device=self.device
-        )  # cell in lstm
-        dec_state = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
+        h_enc_prev = torch.zeros(batch_size, self.dimRNNEnc, device=self.device, requires_grad=True)
+        h_dec_prev = torch.zeros(batch_size, self.dimRNNDec, device=self.device, requires_grad=True)
+        enc_state = torch.zeros(batch_size, self.dimRNNEnc, device=self.device, requires_grad=True)
+        dec_state = torch.zeros(batch_size, self.dimRNNDec, device=self.device, requires_grad=True)
 
-        mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
-        logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
+        mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
+        logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
 
         s_t = self.alignment(h_dec_prev, caption)
 
@@ -119,7 +117,7 @@ class AlignDraw(nn.Module):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A * self.B, device=self.device)
+                else torch.zeros(batch_size, self.A * self.B, device=self.device, requires_grad=True)
             )
 
             img_hat = img - torch.sigmoid(c_prev)
@@ -141,7 +139,7 @@ class AlignDraw(nn.Module):
             self.cs[t] = c_prev + self.write(h_dec)
 
             # P(z)
-            self.mus_prior[t], self.logvars[t] = mu_prior, logvar_prior
+            self.mus_prior[t], self.logvars_prior[t] = mu_prior, logvar_prior
             mu_prior = torch.tanh(self.w_mu_prior(h_dec))
             logvar_prior = torch.tanh(self.w_logvar_prior(h_dec))
 
@@ -161,34 +159,42 @@ class AlignDraw(nn.Module):
         for t in range(self.T):
             # kl loss in DRAW (assuming P(z) ~ N(0, I))
             # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t]) - self.T)
-            
+
             # The implementation of the official repo seems to be the following equation. I think it's wrong.
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
-            # kl = 0.5*(torch.sum(((self.mus[t] - self.mus_prior[t])**2 + torch.exp(self.logvars[t])) /
-            #                     torch.exp(self.logvars_prior[t]) -
-            #                     (self.logvars[t] - self.logvars_prior[t])) -
-            #                     self.T)
-
-            # I think the following is correct.
-            # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
-            # This can be derived from computing E_z~q [ln q(z|x) - ln p(z)]
             
-            # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
-            # the former 2 is called kl loss, and the last is reconstruction loss
             kl = 0.5 * (
                 torch.sum(
-                    (self.mus[t] - self.mus_prior[t]) ** 2
-                    + torch.exp(self.logvars[t] - self.logvars_prior[t])
+                    (
+                        (self.mus[t] - self.mus_prior[t]) ** 2
+                        + torch.exp(self.logvars[t])
+                    )
+                    / torch.exp(self.logvars_prior[t])
                     - (self.logvars[t] - self.logvars_prior[t])
                 )
                 - self.T
             )
 
+            # I think the following is correct.
+            # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
+            # This can be derived from computing E_z~q [ln q(z|x) - ln p(z)]
+
+            # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
+            # the former 2 is called kl loss, and the last is reconstruction loss
+            # kl = 0.5 * (
+            #     torch.sum(
+            #         (self.mus[t] - self.mus_prior[t]) ** 2
+            #         + torch.exp(self.logvars[t] - self.logvars_prior[t])
+            #         - (self.logvars[t] - self.logvars_prior[t])
+            #     )
+            #     - self.T
+            # )
+
             Lz += kl
         Lz = torch.mean(Lz)
-        
+
         return Lx + Lz
-    
+
     def generate(self, caption, batch_size):
         self.batch_size = batch_size
         h_dec_prev = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
@@ -196,18 +202,16 @@ class AlignDraw(nn.Module):
 
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
-        
+
         s_t = self.alignment(h_dec_prev, caption)
 
         for t in range(self.T):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A*self.B, device=self.device)
+                else torch.zeros(batch_size, self.A * self.B, device=self.device)
             )
-            z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(
-                mu_prior
-            )
+            z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(mu_prior)
             h_dec, dec_state = self.decoder(
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )
@@ -218,7 +222,13 @@ class AlignDraw(nn.Module):
         imgs = []
         for img in self.cs:
             img = torch.sigmoid(img.detach().cpu().view(-1, 1, self.B, self.A))
-            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
+            grid = vutils.make_grid(
+                img,
+                nrow=int(math.sqrt(batch_size)),
+                padding=1,
+                normalize=True,
+                pad_value=1,
+            )
             imgs.append(grid)
 
         return imgs
@@ -268,35 +278,25 @@ class AlignDraw(nn.Module):
 
         return self.filterbank(gx, gy, sigma2, delta), gamma
 
-    def filterbank(self, gx, gy, sigma2, delta):
-        rng = torch.arange(0, self.N, device=self.device).view(1, -1)
-        mu_x = self.compute_mu(gx, rng, delta)
-        mu_y = self.compute_mu(gy, rng, delta)
+    def filterbank(self, gx, gy, sigma2, delta, epsilon=1e-9):
+        grid_i = torch.arange(0.0, self.N, device=self.device, requires_grad=True).view(1, -1)
+        
+        # Equation 19.
+        mu_x = gx + (grid_i - self.N / 2 - 0.5) * delta
+        # Equation 20.
+        mu_y = gy + (grid_i - self.N / 2 - 0.5) * delta
 
-        a = torch.arange(0, self.A, device=self.device).view(1, 1, -1)
-        b = torch.arange(0, self.B, device=self.device).view(1, 1, -1)
+        a = torch.arange(0.0, self.A, device=self.device, requires_grad=True).view(1, 1, -1)
+        b = torch.arange(0.0, self.B, device=self.device, requires_grad=True).view(1, 1, -1)
 
         mu_x = mu_x.view(-1, self.N, 1)
         mu_y = mu_y.view(-1, self.N, 1)
         sigma2 = sigma2.view(-1, 1, 1)
 
-        Fx = self.filterbank_matrices(a, mu_x, sigma2)
-        Fy = self.filterbank_matrices(b, mu_y, sigma2)
+        Fx = torch.exp(-torch.pow(a - mu_x, 2) / (2 * sigma2))
+        Fy = torch.exp(-torch.pow(b - mu_y, 2) / (2 * sigma2))
+
+        Fx = Fx / (Fx.sum(2, True).expand_as(Fx) + epsilon)
+        Fy = Fy / (Fy.sum(2, True).expand_as(Fy) + epsilon)
 
         return Fx, Fy
-
-    def filterbank_matrices(self, a, mu_x, sigma2, epsilon=1e-9):
-        t_a, t_mu_x = utils.align(a, mu_x)
-        temp = t_a - t_mu_x
-        temp, t_sigma = utils.align(temp, sigma2)
-        temp = temp / (t_sigma * 2)
-        F = torch.exp(-torch.pow(temp, 2))
-        F = F / (F.sum(2, True).expand_as(F) + epsilon)
-        return F
-
-    def compute_mu(self, g, rng, delta):
-        rng_t, delta_t = utils.align(rng, delta)
-        tmp = (rng_t - self.N / 2 - 0.5) * delta_t
-        tmp_t, g_t = utils.align(tmp, g)
-        mu = tmp_t + g_t
-        return mu

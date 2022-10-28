@@ -21,6 +21,7 @@ import torch.nn as nn
 import torch.utils
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as vutils
 
 from dataset import MNISTCaptions, Captions
 from model import AlignDraw
@@ -169,27 +170,28 @@ def main():
         )
 
         # generate images
-        # with torch.no_grad():
-        #     batch_size = 64
-        #     # only banned, size matter for captions
-        #     caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
-        #     caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
-        #     for step, data in enumerate(caption_queue):
-        #         data = data.to(device)
-        #         x = model.generate(data, batch_size)
-                
-        #         fig = plt.figure(figsize=(16, 16))
-        #         plt.axis("off")
-        #         ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
-        #         anim = animation.ArtistAnimation(
-        #             fig, ims, interval=500, repeat_delay=1000, blit=True
-        #         )
-        #         anim.save(
-        #             Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
-        #             dpi=100,
-        #             writer="imagemagick",
-        #         )
-        #         plt.close("all")
+        if (epoch+1) % 10 == 0:
+            with torch.no_grad():
+                batch_size = 64
+                # only banned, size matter for captions
+                caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
+                caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
+                for step, data in enumerate(caption_queue):
+                    data = data.to(device)
+                    x = model.generate(data, batch_size)
+                    
+                    fig = plt.figure(figsize=(16, 16))
+                    plt.axis("off")
+                    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                    anim = animation.ArtistAnimation(
+                        fig, ims, interval=500, repeat_delay=1000, blit=True
+                    )
+                    anim.save(
+                        Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
+                        dpi=100,
+                        writer="imagemagick",
+                    )
+                    plt.close("all")
 
 
 if __name__ == "__main__":

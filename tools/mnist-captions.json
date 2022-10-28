@@ -15,7 +15,6 @@
     ],
     "channels": 1,
     "seed": 5,
-    "validateAfter": 3,
     "save": true,
     "savedir": "outputs/",
     "lr": 0.001,
