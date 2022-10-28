@@ -155,14 +155,13 @@ class AlignDraw(nn.Module):
         # reconstruction loss
         Lx = criterion(x_recon, img) * self.A * self.B
         # kl loss
-        Lz = 0
+        Lz = 0 # technically it should be a tensor with Size([batch_size])
         for t in range(self.T):
             # kl loss in DRAW (assuming P(z) ~ N(0, I))
-            # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t]) - self.T)
+            # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t], dim=1) - self.T)
 
             # The implementation of the official repo seems to be the following equation. I think it's wrong.
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
-            
             # kl = 0.5 * (
             #     torch.sum(
             #         (
@@ -170,7 +169,7 @@ class AlignDraw(nn.Module):
             #             + torch.exp(self.logvars[t])
             #         )
             #         / torch.exp(self.logvars_prior[t])
-            #         - (self.logvars[t] - self.logvars_prior[t])
+            #         - (self.logvars[t] - self.logvars_prior[t]), dim=1
             #     )
             #     - self.T
             # )
@@ -185,15 +184,15 @@ class AlignDraw(nn.Module):
                 torch.sum(
                     (self.mus[t] - self.mus_prior[t]) ** 2
                     + torch.exp(self.logvars[t] - self.logvars_prior[t])
-                    - (self.logvars[t] - self.logvars_prior[t])
+                    - (self.logvars[t] - self.logvars_prior[t]), dim=1
                 )
                 - self.T
             )
-
             Lz += kl
+            
         Lz = torch.mean(Lz)
         
-        print(f"recons loss {Lx.item()} kl loss {Lz.item()}")
+        # print(f"recons loss {Lx.item()} kl loss {Lz.item()}")
         return Lx + Lz
 
     def generate(self, caption, batch_size):
