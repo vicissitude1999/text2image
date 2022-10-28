@@ -192,8 +192,7 @@ class AlignDraw(nn.Module):
             
         Lz = torch.mean(Lz)
         
-        # print(f"recons loss {Lx.item()} kl loss {Lz.item()}")
-        return Lx + Lz
+        return Lx, Lz
 
     def generate(self, caption, batch_size):
         self.batch_size = batch_size

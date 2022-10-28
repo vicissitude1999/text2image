@@ -122,6 +122,8 @@ def main():
 
         # train
         objs = utils.AvgrageMeter()
+        objs_Lx = utils.AvgrageMeter()
+        objs_Lz = utils.AvgrageMeter()
         model.train()
 
         for step, data in enumerate(train_queue):
@@ -130,26 +132,37 @@ def main():
             caption = caption.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            loss = model.loss((image, caption))
+            Lx, Lz = model.loss((image, caption))
+            loss = Lx + Lz
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 10)
+            nn.utils.clip_grad_norm_(model.parameters(), 10) # clip norm before step!
             optimizer.step()
 
             n = caption.size(0)
             objs.update(loss.item(), n)
+            objs_Lx.update(Lx.item(), n)
+            objs_Lz.update(Lz.item(), n)
 
             if step % args.report_freq == 0:
-                logging.info(f"train {step:03d} loss {objs.avg:f}")
+                logging.info(f"train {step:03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
                 if args.save:
                     writer.add_scalar(
-                        "LossBatch/train", objs.avg, epoch * len(train_queue) + step
+                        "LossBatch", objs.avg, epoch * len(train_queue) + step
+                    )
+                    writer.add_scalar(
+                        "LxBatch", objs_Lx.avg, epoch * len(train_queue) + step
+                    )
+                    writer.add_scalar(
+                        "LzBatch", objs_Lz.avg, epoch * len(train_queue) + step
                     )
         if args.save:
-            writer.add_scalar("LossEpoch/train", objs.avg, epoch)
+            writer.add_scalar("LossEpoch", objs.avg, epoch)
+            writer.add_scalar("LxEpoch", objs_Lx.avg, epoch)
+            writer.add_scalar("LzEpoch", objs_Lz.avg, epoch)
             writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch)
 
         train_obj = objs.avg
-        logging.info(f"[train] loss {train_obj:f}")
+        logging.info(f"[train] loss {train_obj:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
         scheduler.step()
 
         # save checkpoint
