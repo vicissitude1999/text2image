@@ -118,7 +118,7 @@ def main():
 
     best_obj = float("inf")
     for epoch in range(args.epochs):
-        logging.info(f"epoch {epoch:d}")
+        logging.info(f"[epoch] {epoch:d}")
 
         # train
         objs = utils.AvgrageMeter()
