@@ -5,11 +5,13 @@ import json
 import logging
 import os
 import sys
+import shutil
 import random
 from random import randint
-import shutil
 
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from pathlib import Path
 from addict import Dict
 
@@ -19,8 +21,9 @@ import torch.nn as nn
 import torch.utils
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as vutils
 
-from dataset import MNISTCaptions
+from dataset import MNISTCaptions, Captions
 from model import AlignDraw
 import utils
 
@@ -52,7 +55,7 @@ def initialize_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.normal_(m.weight.data, 0, 0.01)
         nn.init.constant_(m.bias.data, 0)
-        
+
 
 def main():
     if not torch.cuda.is_available():
@@ -62,13 +65,13 @@ def main():
     print(args)
     init_seeds(args.seed, False)
     device = "cuda"
-    
+
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
-        utils.create_exp_dir(args.savedir, scripts_to_save=None)
+        utils.create_exp_dir(args.savedir, scripts_to_save=glob.glob("*.py"))
         with open(Path(args.savedir, "args.json"), "w") as f:
-            json.dump(args, f)
+            json.dump(args, f, indent=4)
     # logging
     log_format = "%(asctime)s %(message)s"
     logging.basicConfig(
@@ -83,9 +86,10 @@ def main():
         logging.getLogger().addHandler(fh)
         # tensorboard
         writer = SummaryWriter(args.savedir)
-        
+
+    # create dataset
     banned = [randint(0, 10) for i in range(12)]
-    train_data = MNISTCaptions(datadir=args.datadir, banned=banned, train=True)
+    train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True)
     train_queue = DataLoader(
         dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False
     )
@@ -102,10 +106,10 @@ def main():
         args.model[0].dimZ,
         args.model[0].dimRNNDec,
         args.model[0].dimAlign,
-        device
+        args.channels,
+        device,
     ).to(device)
     model.apply(initialize_weights)
-    
 
     optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -114,38 +118,51 @@ def main():
 
     best_obj = float("inf")
     for epoch in range(args.epochs):
-        logging.info(f"epoch {epoch:d}")
-        
+        logging.info(f"[epoch] {epoch:d}")
+
         # train
         objs = utils.AvgrageMeter()
+        objs_Lx = utils.AvgrageMeter()
+        objs_Lz = utils.AvgrageMeter()
         model.train()
-        
+
         for step, data in enumerate(train_queue):
             image, caption = data
             image = image.to(device, non_blocking=True)
             caption = caption.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            loss = model.loss((image, caption))
+            Lx, Lz = model.loss((image, caption))
+            loss = Lx + Lz
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 10)
+            nn.utils.clip_grad_norm_(model.parameters(), 10) # clip norm before step!
             optimizer.step()
 
             n = caption.size(0)
             objs.update(loss.item(), n)
+            objs_Lx.update(Lx.item(), n)
+            objs_Lz.update(Lz.item(), n)
 
             if step % args.report_freq == 0:
-                logging.info(f"train {step:03d} loss {objs.avg:f}")
+                logging.info(f"train {step:03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
                 if args.save:
                     writer.add_scalar(
-                        "LossBatch/train", objs.avg, epoch * len(train_queue) + step
+                        "LossBatch", objs.avg, epoch * len(train_queue) + step
+                    )
+                    writer.add_scalar(
+                        "LxBatch", objs_Lx.avg, epoch * len(train_queue) + step
+                    )
+                    writer.add_scalar(
+                        "LzBatch", objs_Lz.avg, epoch * len(train_queue) + step
                     )
         if args.save:
-            writer.add_scalar("LossEpoch/train", objs.avg, epoch)
+            writer.add_scalar("LossEpoch", objs.avg, epoch)
+            writer.add_scalar("LxEpoch", objs_Lx.avg, epoch)
+            writer.add_scalar("LzEpoch", objs_Lz.avg, epoch)
             writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch)
-            
-        train_obj = objs.avg    
-        logging.info(f"[train] loss {train_obj:f}")
+
+        train_obj = objs.avg
+        logging.info(f"[train] loss {train_obj:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
         scheduler.step()
 
         # save checkpoint
@@ -159,11 +176,35 @@ def main():
                 "best_obj": best_obj,
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict()
+                "scheduler": scheduler.state_dict(),
             },
             is_best,
             args.savedir,
         )
+
+        # generate images
+        if (epoch+1) % 10 == 0:
+            with torch.no_grad():
+                batch_size = 64
+                # only banned, size matter for captions
+                caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
+                caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
+                for step, data in enumerate(caption_queue):
+                    data = data.to(device)
+                    x = model.generate(data, batch_size)
+                    
+                    fig = plt.figure(figsize=(16, 16))
+                    plt.axis("off")
+                    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                    anim = animation.ArtistAnimation(
+                        fig, ims, interval=500, repeat_delay=1000, blit=True
+                    )
+                    anim.save(
+                        Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
+                        dpi=100,
+                        writer="imagemagick",
+                    )
+                    plt.close("all")
 
 
 if __name__ == "__main__":
