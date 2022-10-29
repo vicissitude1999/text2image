@@ -5,9 +5,9 @@ import json
 import logging
 import os
 import sys
+import shutil
 import random
 from random import randint
-import shutil
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -69,9 +69,9 @@ def main():
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
-        utils.create_exp_dir(args.savedir, scripts_to_save=None)
+        utils.create_exp_dir(args.savedir, scripts_to_save=glob.glob("*.py"))
         with open(Path(args.savedir, "args.json"), "w") as f:
-            json.dump(args, f)
+            json.dump(args, f, indent=4)
     # logging
     log_format = "%(asctime)s %(message)s"
     logging.basicConfig(

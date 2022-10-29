@@ -264,3 +264,12 @@ def create_1digit_mnist_image_bottomleft(digit1):
     image = image.reshape(-1)
 
     return image
+
+if __name__ == "__main__":
+    cap = datasets.CocoCaptions(root = "data/coco/train2014/",
+                        annFile = "data/coco/annotations/captions_train2014.json",
+                        transform=transforms.PILToTensor())
+    img, target = cap[0]
+
+    print("Image Size: ", img.size())
+    print(target)
