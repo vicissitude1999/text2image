@@ -3,10 +3,15 @@ PyTorch implementation of paper paper [Generating Images from Captions with Atte
 
 ### Getting Started
 
-Download data:
-For training mnist, PyTorch will download the raw data automatically.
+### MNIST with Captions
+To train MNIST, run
+```
+python src/train.py mnist tools/mnist-captions.json
+```
+MNIST data will be automatically downloaded by PyTorch to text2image/data/
 
-To run COCO, download the following to text2image/data/
+### COCO with Captions
+Download the following to text2image/data/
 ```
 wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-images-32x32.npy
 wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-images-56x56.npy
@@ -25,22 +30,10 @@ wget http://www.cs.toronto.edu/~emansim/datasets/text2image/test-cap2im.pkl
 wget http://www.cs.toronto.edu/~emansim/datasets/text2image/gan.hdf5
 wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dictionary.pkl
 ```
-and run
+To train COCO, run
 ```
 python src/train.py coco tools/coco-captions-32x32.json
 ```
-
-### MNIST with Captions
-
-To train the model go to text2image folder and run
-
-```
-python src/train.py mnist tools/mnist-captions.json
-```
-
-To generate 60x60 MNIST images from captions as specified in appendix of the paper run
-
-### Microsoft COCO
 
 ### Reference
 
