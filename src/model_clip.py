@@ -1,5 +1,5 @@
 import math
-
+import clip
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,7 +13,7 @@ import utils
 # dimZ: latent image dimension
 # dimRNNDec: LSTM output dimension
 # dimAlign: alignment dimension
-class AlignDraw(nn.Module):
+class AlignDrawClip(nn.Module):
     def __init__(
         self,
         runSteps,
@@ -21,7 +21,7 @@ class AlignDraw(nn.Module):
         dimWriteAttent,
         dimX,
         dimY,
-        dimLangRNN,
+        dimTextEnc,
         dimRNNEnc,
         dimZ,
         dimRNNDec,
@@ -38,12 +38,11 @@ class AlignDraw(nn.Module):
         self.B = int(math.sqrt(dimX))
         self.N = dimReadAttent
         self.dimY = dimY
-        self.dimLangRNN = dimLangRNN
         self.dimRNNEnc = dimRNNEnc
         self.dimZ = dimZ
         self.dimRNNDec = dimRNNDec
 
-        self.lang = nn.LSTM(dimY, dimLangRNN)
+        self.clip, preprocess = clip.load('ViT-B/32', device)
         self.encoder = nn.LSTMCell(2 * self.N * self.N + dimRNNDec, dimRNNEnc)
         # Q(z|x) parameters
         self.w_mu = nn.Linear(dimRNNEnc, dimZ)
@@ -53,11 +52,11 @@ class AlignDraw(nn.Module):
         self.w_logvar_prior = nn.Linear(dimRNNDec, dimZ)
 
         # align parameters
-        self.w_lang_align = nn.Linear(2 * dimLangRNN, dimAlign)
+        self.w_lang_align = nn.Linear(dimTextEnc, dimAlign)
         self.w_dec_align = nn.Linear(dimRNNDec, dimAlign)
         self.w_v_align = nn.Linear(dimAlign, 1)
 
-        self.decoder = nn.LSTMCell(dimZ + 2 * dimLangRNN, dimRNNDec)
+        self.decoder = nn.LSTMCell(dimZ + dimTextEnc, dimRNNDec)
         self.w_dec_attn = nn.Linear(dimRNNDec, 5)
         self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
 
@@ -82,10 +81,19 @@ class AlignDraw(nn.Module):
             (self.lang(caption_1hot)[0], self.lang(caption_reverse_1hot)[0]), 2
         )
 
-        return h_t_lang
+        with torch.no_grad():
+            clip_feat = self.clip.encode_text(caption).to(torch.float32)
+
+        return h_t_lang, clip_feat
+    
+    # def text_encoder(self, caption):
+    #     # seq * B * dimY
+    #     with torch.no_grad():
+    #         text_features = self.clip.encode_text(caption)
+    #     return text_features.to(torch.float32)
 
 
-    def alignment(self, h_dec_prev, h_t_lang):
+    def alignment(self, clip_feat, h_dec_prev, h_t_lang):
         ##### compute alignments
 
         # seq * B * dimAlign
@@ -100,7 +108,7 @@ class AlignDraw(nn.Module):
         # B * (2*dimLangRNN)
         s_t = (alpha[:, :, None] * h_t_lang).sum(axis=0)
 
-        return s_t
+        return s_t + clip_feat
 
     def forward(self, x):
         img, caption = x
@@ -116,7 +124,7 @@ class AlignDraw(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
 
-        text_feat = self.text_encoder(caption)
+        lang_feat, clip_feat = self.text_encoder(caption)
 
         for t in range(self.T):
             c_prev = (
@@ -138,7 +146,7 @@ class AlignDraw(nn.Module):
             self.mus[t], self.logvars[t] = mu, logvar
 
             # eq. 3 -> 4
-            s_t = self.alignment(h_dec_prev, text_feat)
+            s_t = self.alignment(clip_feat, h_dec_prev, lang_feat)
             h_dec, dec_state = self.decoder(
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )
@@ -208,7 +216,7 @@ class AlignDraw(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
 
-        text_feat = self.text_encoder(caption)
+        lang_feat, clip_feat = self.text_encoder(caption)
 
         for t in range(self.T):
             c_prev = (
@@ -217,7 +225,7 @@ class AlignDraw(nn.Module):
                 else torch.zeros(batch_size, self.A * self.B, device=self.device)
             )
             z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(mu_prior)
-            s_t = self.alignment(h_dec_prev, text_feat)
+            s_t = self.alignment(clip_feat, h_dec_prev, lang_feat)
             h_dec, dec_state = self.decoder(
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )

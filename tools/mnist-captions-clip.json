@@ -1,0 +1,27 @@
+{
+    "model": [
+        {
+            "dimY": 77,
+            "dimTextEnc": 512,
+            "dimAlign": 512,
+            "dimX": 3600,
+            "dimReadAttent": 8,
+            "dimWriteAttent": 8,
+            "dimRNNEnc": 300,
+            "dimRNNDec": 300,
+            "dimZ": 150,
+            "runSteps": 32
+        }
+    ],
+    "channels": 1,
+    "seed": 5,
+    "save": true,
+    "savedir": "outputs/",
+    "lr": 0.001,
+    "epochs": 150,
+    "batch_size": 100,
+    "report_freq": 20,
+    "reduceLRAfter": 110,
+    "pathToWeights": "None",
+    "datadir": "data/"
+}
