@@ -1,0 +1,28 @@
+{
+    "model": [
+        {
+            "dimY": 25323,
+            "dimLangRNN": 128,
+            "dimAlign": 512,
+            "dimA": 32,
+            "dimB": 32,
+            "channels": 3,
+            "dimReadAttent": 9,
+            "dimWriteAttent": 9,
+            "dimRNNEnc": 550,
+            "dimRNNDec": 550,
+            "dimZ": 275,
+            "runSteps": 32
+        }
+    ],
+    "seed": 5,
+    "save": false,
+    "savedir": "outputs/coco32",
+    "lr": 0.001,
+    "epochs": 18,
+    "batch_size": 16,
+    "report_freq": 20,
+    "reduceLRAfter": 11,
+    "pathToWeights": "None",
+    "datadir": "data/"
+}
