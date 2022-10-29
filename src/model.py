@@ -19,14 +19,15 @@ class AlignDraw(nn.Module):
         runSteps,
         dimReadAttent,  # dimReadAttent = dimWriteAttent
         dimWriteAttent,
-        dimX,
+        dimA,
+        dimB,
+        channels,
         dimY,
         dimLangRNN,
         dimRNNEnc,
         dimZ,
         dimRNNDec,
         dimAlign,
-        channels,
         device,
     ):
         super().__init__()
@@ -34,8 +35,8 @@ class AlignDraw(nn.Module):
         self.channels = channels
 
         self.T = runSteps
-        self.A = int(math.sqrt(dimX))
-        self.B = int(math.sqrt(dimX))
+        self.A = dimA
+        self.B = dimB
         self.N = dimReadAttent
         self.dimY = dimY
         self.dimLangRNN = dimLangRNN
@@ -44,7 +45,7 @@ class AlignDraw(nn.Module):
         self.dimRNNDec = dimRNNDec
 
         self.lang = nn.LSTM(dimY, dimLangRNN)
-        self.encoder = nn.LSTMCell(2 * self.N * self.N + dimRNNDec, dimRNNEnc)
+        self.encoder = nn.LSTMCell(2 * self.N * self.N * channels + dimRNNDec, dimRNNEnc)
         # Q(z|x) parameters
         self.w_mu = nn.Linear(dimRNNEnc, dimZ)
         self.w_logvar = nn.Linear(dimRNNEnc, dimZ)
@@ -59,7 +60,7 @@ class AlignDraw(nn.Module):
 
         self.decoder = nn.LSTMCell(dimZ + 2 * dimLangRNN, dimRNNDec)
         self.w_dec_attn = nn.Linear(dimRNNDec, 5)
-        self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
+        self.w_dec = nn.Linear(dimRNNDec, self.N * self.N * channels)
 
         # records of canvas matrices, and mu, logvars (used to 0compute loss)
         self.cs = [0] * self.T
@@ -69,19 +70,13 @@ class AlignDraw(nn.Module):
     def alignment(self, h_dec_prev, caption):
         ##### compute alignments
         # seq * B * dimY
-        caption_1hot = (
-            F.one_hot(caption, num_classes=self.dimY).transpose(0, 1).to(torch.float32)
-        )
+        caption_1hot = F.one_hot(caption, num_classes=self.dimY).transpose(0, 1).to(torch.float32)
         caption_reverse_1hot = (
-            F.one_hot(torch.flip(caption, dims=(1,)), num_classes=self.dimY)
-            .transpose(0, 1)
-            .to(torch.float32)
+            F.one_hot(torch.flip(caption, dims=(1,)), num_classes=self.dimY).transpose(0, 1).to(torch.float32)
         )
         # output, (hn, cn) = self.lang(caption_1hot)
         # seq * B * (2*dimLangRNN)
-        h_t_lang = torch.cat(
-            (self.lang(caption_1hot)[0], self.lang(caption_reverse_1hot)[0]), 2
-        )
+        h_t_lang = torch.cat((self.lang(caption_1hot)[0], self.lang(caption_reverse_1hot)[0]), 2)
 
         # seq * B * dimAlign
         hid_align = self.w_lang_align(h_t_lang)
@@ -111,33 +106,27 @@ class AlignDraw(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
 
-        s_t = self.alignment(h_dec_prev, caption)
-
         for t in range(self.T):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A * self.B, device=self.device, requires_grad=True)
+                else torch.zeros(batch_size, self.A * self.B * self.channels, device=self.device, requires_grad=True)
             )
 
             img_hat = img - torch.sigmoid(c_prev)
             r_t = self.read(img, img_hat, h_dec_prev)
-            h_enc, enc_state = self.encoder(
-                torch.cat((r_t, h_dec_prev), 1), (h_enc_prev, enc_state)
-            )
-
-            mu = self.w_mu(h_enc)
-            logvar = self.w_logvar(h_enc)
+            h_enc, enc_state = self.encoder(torch.cat((r_t, h_dec_prev), 1), (h_enc_prev, enc_state))
 
             # Q(z|x)
+            mu = self.w_mu(h_enc)
+            logvar = self.w_logvar(h_enc)
             z_t = mu + torch.exp(0.5 * logvar) * torch.randn_like(mu)
             self.mus[t], self.logvars[t] = mu, logvar
-
-            h_dec, dec_state = self.decoder(
-                torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
-            )
+            # alignment
+            s_t = self.alignment(h_dec_prev, caption)
+            # decode
+            h_dec, dec_state = self.decoder(torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state))
             self.cs[t] = c_prev + self.write(h_dec)
-
             # P(z)
             self.mus_prior[t], self.logvars_prior[t] = mu_prior, logvar_prior
             mu_prior = torch.tanh(self.w_mu_prior(h_dec))
@@ -153,9 +142,9 @@ class AlignDraw(nn.Module):
         criterion = nn.BCELoss()
         x_recon = torch.sigmoid(self.cs[-1])
         # reconstruction loss
-        Lx = criterion(x_recon, img) * self.A * self.B
+        Lx = criterion(x_recon, img) * self.A * self.B * self.channels
         # kl loss
-        Lz = 0 # technically it should be a tensor with Size([batch_size])
+        Lz = 0  # technically it should be a tensor with Size([batch_size])
         for t in range(self.T):
             # kl loss in DRAW (assuming P(z) ~ N(0, I))
             # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t], dim=1) - self.T)
@@ -164,12 +153,10 @@ class AlignDraw(nn.Module):
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
             kl = 0.5 * (
                 torch.sum(
-                    (
-                        (self.mus[t] - self.mus_prior[t]) ** 2
-                        + torch.exp(self.logvars[t])
-                    )
+                    ((self.mus[t] - self.mus_prior[t]) ** 2 + torch.exp(self.logvars[t]))
                     / torch.exp(self.logvars_prior[t])
-                    - (self.logvars[t] - self.logvars_prior[t]), dim=1
+                    - (self.logvars[t] - self.logvars_prior[t]),
+                    dim=1,
                 )
                 - self.T
             )
@@ -189,9 +176,9 @@ class AlignDraw(nn.Module):
             #     - self.T
             # )
             Lz += kl
-            
+
         Lz = torch.mean(Lz)
-        
+
         return Lx, Lz
 
     def generate(self, caption, batch_size):
@@ -202,32 +189,23 @@ class AlignDraw(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
 
-        s_t = self.alignment(h_dec_prev, caption)
-
         for t in range(self.T):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A * self.B, device=self.device)
+                else torch.zeros(batch_size, self.A * self.B * self.channels, device=self.device)
             )
             z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(mu_prior)
-            h_dec, dec_state = self.decoder(
-                torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
-            )
+            s_t = self.alignment(h_dec_prev, caption)
+            h_dec, dec_state = self.decoder(torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state))
             self.cs[t] = c_prev + self.write(h_dec)
 
             h_dec_prev = h_dec
 
         imgs = []
         for img in self.cs:
-            img = torch.sigmoid(img.detach().cpu().view(-1, 1, self.B, self.A))
-            grid = vutils.make_grid(
-                img,
-                nrow=int(math.sqrt(batch_size)),
-                padding=1,
-                normalize=True,
-                pad_value=1,
-            )
+            img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.B, self.A))
+            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
             imgs.append(grid)
 
         return imgs
@@ -235,14 +213,15 @@ class AlignDraw(nn.Module):
     ######## write
     def write(self, h_dec=0):
         w = self.w_dec(h_dec)
-        w = w.view(self.batch_size, self.N, self.N)
-        # w = Variable(torch.ones(4,5,5) * 3)
-        # self.batch_size = 4
+        if self.channels == 3:
+            w = w.view(self.batch_size, 3, self.N, self.N)
+        elif self.channels == 1:
+            w = w.view(self.batch_size, self.N, self.N)
         (Fx, Fy), gamma = self.attn_window(h_dec)
-        Fyt = Fy.transpose(2, 1)
-        # wr = matmul(Fyt,matmul(w,Fx))
-        wr = Fyt.bmm(w.bmm(Fx))
-        wr = wr.view(self.batch_size, self.A * self.B)
+        Fyt = Fy.transpose(self.channels, 2)
+
+        wr = torch.matmul(Fyt, torch.matmul(w, Fx))
+        wr = wr.view(self.batch_size, self.A * self.B * self.channels)
 
         return wr / gamma.view(-1, 1).expand_as(wr)
 
@@ -250,17 +229,19 @@ class AlignDraw(nn.Module):
     def read(self, x, x_hat, h_dec_prev):
         (Fx, Fy), gamma = self.attn_window(h_dec_prev)
 
-        def filter_img(img, Fx, Fy, gamma, A, B, N):
-            Fxt = Fx.transpose(2, 1)
-            img = img.view(-1, B, A)
-            # img = img.transpose(2,1)
-            # glimpse = matmul(Fy,matmul(img,Fxt))P
-            glimpse = Fy.bmm(img.bmm(Fxt))
-            glimpse = glimpse.view(-1, N * N)
+        def filter_img(img, Fx, Fy, gamma, A, B, channels, N):
+            Fxt = Fx.transpose(channels, 2)
+            if channels == 3:
+                img = img.view(-1, 3, B, A)
+            elif channels == 1:
+                img = img.view(-1, B, A)
+            glimpse = torch.matmul(Fy, torch.matmul(img, Fxt))
+            glimpse = glimpse.view(-1, N * N * channels)
+
             return glimpse * gamma.view(-1, 1).expand_as(glimpse)
 
-        x = filter_img(x, Fx, Fy, gamma, self.A, self.B, self.N)
-        x_hat = filter_img(x_hat, Fx, Fy, gamma, self.A, self.B, self.N)
+        x = filter_img(x, Fx, Fy, gamma, self.A, self.B, self.channels, self.N)
+        x_hat = filter_img(x_hat, Fx, Fy, gamma, self.A, self.B, self.channels, self.N)
 
         return torch.cat((x, x_hat), 1)
 
@@ -279,7 +260,7 @@ class AlignDraw(nn.Module):
 
     def filterbank(self, gx, gy, sigma2, delta, epsilon=1e-9):
         grid_i = torch.arange(0.0, self.N, device=self.device, requires_grad=True).view(1, -1)
-        
+
         # Equation 19.
         mu_x = gx + (grid_i - self.N / 2 - 0.5) * delta
         # Equation 20.
@@ -297,5 +278,12 @@ class AlignDraw(nn.Module):
 
         Fx = Fx / (Fx.sum(2, True).expand_as(Fx) + epsilon)
         Fy = Fy / (Fy.sum(2, True).expand_as(Fy) + epsilon)
+
+        if self.channels == 3:
+            Fx = Fx.view(Fx.size(0), 1, Fx.size(1), Fx.size(2))
+            Fx = Fx.repeat(1, 3, 1, 1)
+
+            Fy = Fy.view(Fy.size(0), 1, Fy.size(1), Fy.size(2))
+            Fy = Fy.repeat(1, 3, 1, 1)
 
         return Fx, Fy
