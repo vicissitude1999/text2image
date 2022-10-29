@@ -6,15 +6,28 @@ PyTorch implementation of paper paper [Generating Images from Captions with Atte
 Download data:
 For training mnist, PyTorch will download the raw data automatically.
 
-Additionally, depending on the tasks you will probably need to download these files by running:
-
-Install COCO API:
+To run COCO, download the following to text2image/data/
 ```
-conda install cython
-git clone git@github.com:cocodataset/cocoapi.git
-cd cocoapi/PythonAPI/
-make
-python setup.py install
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-images-32x32.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-images-56x56.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-captions.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-captions-len.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/train-cap2im.pkl
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dev-images-32x32.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dev-images-56x56.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dev-captions.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dev-captions-len.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dev-cap2im.pkl
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/test-images-32x32.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/test-captions.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/test-captions-len.npy
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/test-cap2im.pkl
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/gan.hdf5
+wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dictionary.pkl
+```
+and run
+```
+python src/train.py coco tools/coco-captions-32x32.json
 ```
 
 ### MNIST with Captions
@@ -22,7 +35,7 @@ python setup.py install
 To train the model go to text2image folder and run
 
 ```
-bash tools/train.sh
+python src/train.py mnist tools/mnist-captions.json
 ```
 
 To generate 60x60 MNIST images from captions as specified in appendix of the paper run
