@@ -1,10 +1,12 @@
 {
     "model": [
         {
-            "dimY": 77,
-            "dimTextEnc": 512,
+            "dimY": 49408,
+            "dimLangRNN": 256,
             "dimAlign": 512,
-            "dimX": 3600,
+            "dimA": 60,
+            "dimB": 60,
+            "channels": 1,
             "dimReadAttent": 8,
             "dimWriteAttent": 8,
             "dimRNNEnc": 300,
@@ -13,10 +15,9 @@
             "runSteps": 32
         }
     ],
-    "channels": 1,
     "seed": 5,
     "save": true,
-    "savedir": "outputs/",
+    "savedir": "outputs/mnist_clip",
     "lr": 0.001,
     "epochs": 150,
     "batch_size": 100,
