@@ -1,8 +1,8 @@
 {
     "model": [
         {
-            "dimY": 25323,
-            "dimLangRNN": 128,
+            "dimY": 49408,
+            "dimLangRNN": 256,
             "dimAlign": 512,
             "dimA": 32,
             "dimB": 32,
@@ -17,7 +17,7 @@
     ],
     "seed": 5,
     "save": true,
-    "savedir": "outputs/coco32",
+    "savedir": "outputs/coco32_clip",
     "lr": 0.001,
     "epochs": 18,
     "batch_size": 160,

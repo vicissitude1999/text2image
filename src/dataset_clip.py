@@ -1,12 +1,79 @@
+from collections import defaultdict
+import math
+import clip
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
-import clip
+
 from random import randint
 import numpy as np
+import pickle
+from pathlib import Path
 
+class COCOCaptions(Dataset):
+    # split: train, dev, test
+    def __init__(self, datadir, split) -> None:
+        super().__init__()
+
+        # image data, n/5 * 3072 (=32*32*3)  each image has 5 captions
+        data_path = Path(datadir, f"{split}-images-32x32.npy")
+        # caption data, n * 57 (max length of caption)
+        captions_path = Path(datadir, f"{split}-captions.npy")
+        # length of captions # n * 1
+        captions_len = Path(datadir, f"{split}-captions-len.npy")
+        # mapping from caption index to image index # (essentially just i//5)
+        cap2im = Path(datadir, f"{split}-cap2im.pkl")
+
+        self.data = np.load(data_path).astype(np.float32)
+        self.captions = np.load(captions_path).astype(np.int64)
+        self.captions_len = np.load(captions_len).astype(np.int32).reshape(-1)
+        with open(cap2im, "rb") as f:
+            self.cap2im = pickle.load(f)
+
+    def __len__(self):
+        return self.captions.shape[0]
+
+    def __getitem__(self, index):
+        # by using the custom batch sampler defined below, all captions within a batch have the same length,
+        # so we don't need to use collate_fn to pad shorter captions
+        return self.data[self.cap2im[index]], self.captions[index][0 : self.captions_len[index]]
+    
+# custom batch sampler to make sure captions within a batch have the same length
+# the logic is identical to homogeneous-data.py in mansimov's code
+class CaptionSameLenBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size, seed=5, minlen=7, maxlen=30) -> None:
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.seed = seed
+
+        captions_len = dataset.captions_len
+        self.len_to_indices = defaultdict(list)
+        self.rng = np.random.default_rng(seed)
+
+        for i, l in enumerate(captions_len):
+            if (minlen is None or l >= minlen) and (maxlen is None or l <= maxlen):
+                self.len_to_indices[l].append(i)
+        # have to compute the length after filtering by minlen and maxlen
+        self.size = 0
+        for l in self.len_to_indices:
+            self.size += math.ceil(len(self.len_to_indices[l]) / self.batch_size)
+
+    def __len__(self):
+        return self.size
+
+    def __iter__(self):
+        batches = []
+
+        for l in self.len_to_indices:
+            self.rng.shuffle(self.len_to_indices[l])
+            # torch.split doesn't work the same as np.split
+            for batch in torch.split(torch.tensor(self.len_to_indices[l]), self.batch_size):
+                batches.append(batch.tolist())
+        self.rng.shuffle(batches)
+
+        return iter(batches)
 
 class MNISTCaptions(Dataset):
     def __init__(self, datadir, banned, size=10000, train=True) -> None:
@@ -98,7 +165,7 @@ class MNISTCaptions(Dataset):
                 self.targets[i]
             )
 
-        caption = clip.tokenize(sentence)
+        caption = clip.tokenize(sentence).squeeze().to(torch.int64)
         
         return caption
 

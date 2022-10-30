@@ -19,14 +19,15 @@ class AlignDrawClip(nn.Module):
         runSteps,
         dimReadAttent,  # dimReadAttent = dimWriteAttent
         dimWriteAttent,
-        dimX,
+        dimA,
+        dimB,
+        channels,
         dimY,
-        dimTextEnc,
+        dimLangRNN,
         dimRNNEnc,
         dimZ,
         dimRNNDec,
         dimAlign,
-        channels,
         device,
     ):
         super().__init__()
@@ -34,14 +35,15 @@ class AlignDrawClip(nn.Module):
         self.channels = channels
 
         self.T = runSteps
-        self.A = int(math.sqrt(dimX))
-        self.B = int(math.sqrt(dimX))
+        self.A = dimA
+        self.B = dimB
         self.N = dimReadAttent
         self.dimY = dimY
         self.dimRNNEnc = dimRNNEnc
         self.dimZ = dimZ
         self.dimRNNDec = dimRNNDec
 
+        self.lang = nn.LSTM(dimY, dimLangRNN)
         self.clip, preprocess = clip.load('ViT-B/32', device)
         self.encoder = nn.LSTMCell(2 * self.N * self.N + dimRNNDec, dimRNNEnc)
         # Q(z|x) parameters
@@ -52,11 +54,11 @@ class AlignDrawClip(nn.Module):
         self.w_logvar_prior = nn.Linear(dimRNNDec, dimZ)
 
         # align parameters
-        self.w_lang_align = nn.Linear(dimTextEnc, dimAlign)
+        self.w_lang_align = nn.Linear(2 * dimLangRNN, dimAlign)
         self.w_dec_align = nn.Linear(dimRNNDec, dimAlign)
         self.w_v_align = nn.Linear(dimAlign, 1)
 
-        self.decoder = nn.LSTMCell(dimZ + dimTextEnc, dimRNNDec)
+        self.decoder = nn.LSTMCell(dimZ + 2 * dimLangRNN, dimRNNDec)
         self.w_dec_attn = nn.Linear(dimRNNDec, 5)
         self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
 
@@ -67,11 +69,10 @@ class AlignDrawClip(nn.Module):
 
     def text_encoder(self, caption):
         # seq * B * dimY
-        caption_1hot = (
-            F.one_hot(caption, num_classes=self.dimY).transpose(0, 1).to(torch.float32)
-        )
+        caption_1hot = F.one_hot(caption.to(torch.int64), num_classes=self.dimY).transpose(0, 1).to(torch.float32)
+    
         caption_reverse_1hot = (
-            F.one_hot(torch.flip(caption, dims=(1,)), num_classes=self.dimY)
+            F.one_hot(torch.flip(caption.to(torch.int64), dims=(1,)), num_classes=self.dimY)
             .transpose(0, 1)
             .to(torch.float32)
         )
