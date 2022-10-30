@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
 
-from dataset import Captions
 import utils
 
 # dimY, dimLangRNN: caption encoding

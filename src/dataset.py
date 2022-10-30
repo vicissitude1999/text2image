@@ -26,12 +26,17 @@ class COCOCaptions(Dataset):
         captions_len = Path(datadir, f"{split}-captions-len.npy")
         # mapping from caption index to image index # (essentially just i//5)
         cap2im = Path(datadir, f"{split}-cap2im.pkl")
+        # dictionary
+        dictionary = Path(datadir, "dictionary.pkl")
 
         self.data = np.load(data_path).astype(np.float32)
         self.captions = np.load(captions_path).astype(np.int64)
         self.captions_len = np.load(captions_len).astype(np.int32).reshape(-1)
         with open(cap2im, "rb") as f:
             self.cap2im = pickle.load(f)
+        with open(dictionary, "rb") as f:
+            self.dictionary = pickle.load(f)
+        self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
 
     def __len__(self):
         return self.captions.shape[0]
@@ -40,6 +45,9 @@ class COCOCaptions(Dataset):
         # by using the custom batch sampler defined below, all captions within a batch have the same length,
         # so we don't need to use collate_fn to pad shorter captions
         return self.data[self.cap2im[index]], self.captions[index][0 : self.captions_len[index]]
+
+    def decodeCaption(self, caption):
+        return " ".join([self.reverse_dictionary[c] for c in caption])
 
 
 # custom batch sampler to make sure captions within a batch have the same length
@@ -77,10 +85,16 @@ class CaptionSameLenBatchSampler(Sampler):
 
         return iter(batches)
 
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
+
 
 class MNISTCaptions(Dataset):
-    def __init__(self, datadir, banned, size=10000, train=True) -> None:
+    def __init__(self, datadir, banned, size=10000, train=True, seed=5) -> None:
         self.banned = banned
+        self.train = train
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
 
         self.dictionary = {
             "0": 0,
@@ -113,15 +127,15 @@ class MNISTCaptions(Dataset):
         self.data = mnist.data.numpy() / 255  # 28 * 28, 0 - 255
         self.targets = mnist.targets.numpy()
         self.size = size
-
+        
     def __len__(self):
         return self.size
 
     def __getitem__(self, index):
         while True:
-            k = randint(0, 7)
-            i = randint(0, self.size)
-            j = randint(0, self.size)
+            k = self.rng.choice(7+1)
+            i = self.rng.choice(self.size+1)
+            j = self.rng.choice(self.size+1)
 
             image = self.getImage(k, i, j)
             caption = self.getCaption(k, i, j)
@@ -129,31 +143,38 @@ class MNISTCaptions(Dataset):
                 continue
 
             return image, caption
-
+        
+    # reset the rng
+    # for example, when generating images, we want to generate the same set of data at each epoch
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
+    
+    
     def getImage(self, k, i, j):
         if k == 0 or k == 1:
-            image = create_2digit_mnist_image_leftright(self.data[i], self.data[j])
+            image = create_2digit_mnist_image_leftright(self.data[i], self.data[j], self.rng)
         if k == 2 or k == 3:
-            image = create_2digit_mnist_image_topbottom(self.data[i], self.data[j])
+            image = create_2digit_mnist_image_topbottom(self.data[i], self.data[j], self.rng)
         if k == 4:
-            image = create_1digit_mnist_image_topleft(self.data[i])
+            image = create_1digit_mnist_image_topleft(self.data[i], self.rng)
         if k == 5:
-            image = create_1digit_mnist_image_bottomright(self.data[i])
+            image = create_1digit_mnist_image_bottomright(self.data[i], self.rng)
         if k == 6:
-            image = create_1digit_mnist_image_topright(self.data[i])
+            image = create_1digit_mnist_image_topright(self.data[i], self.rng)
         if k == 7:
-            image = create_1digit_mnist_image_bottomleft(self.data[i])
+            image = create_1digit_mnist_image_bottomleft(self.data[i], self.rng)
 
         return image
 
     def getCaption(self, k, i, j):
         # some cases are hidden from training set
-        if k <= 3:
-            if self.targets[i] == self.banned[k * 2] or self.targets[j] == self.banned[k * 2 + 1]:
-                return None
-        else:
-            if self.targets[i] == self.banned[k + 4]:
-                return None
+        if self.train:
+            if k <= 3:
+                if self.targets[i] == self.banned[k * 2] or self.targets[j] == self.banned[k * 2 + 1]:
+                    return None
+            else:
+                if self.targets[i] == self.banned[k + 4]:
+                    return None
 
         if k == 0:
             sentence = "the digit %d is on the left of the digit %d ." % (self.targets[i], self.targets[j])
@@ -175,23 +196,9 @@ class MNISTCaptions(Dataset):
         caption = sent2matrix(sentence, self.dictionary)
 
         return caption
-
-
-class Captions(MNISTCaptions):
-    def __init__(self, datadir, banned, size=64, train=True):
-        super().__init__(datadir, banned, size, train)
-
-    def __getitem__(self, index):
-        while True:
-            k = randint(0, 7)
-            i = randint(0, self.size)
-            j = randint(0, self.size)
-
-            caption = self.getCaption(k, i, j)
-            if caption is None:
-                continue
-
-            return caption
+    
+    def decodeCaption(self, caption):
+        return " ".join([self.reverse_dictionary[c] for c in caption])
 
 
 def create_reverse_dictionary(dictionary):
@@ -221,13 +228,13 @@ def matrix2sent(matrix, reverse_dictionary):
     return text
 
 
-def create_2digit_mnist_image_leftright(digit1, digit2):
+def create_2digit_mnist_image_leftright(digit1, digit2, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(16, 18)
-    h = randint(0, 4)
+    w = rng.choice(range(16, 18+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     h = randint(28, 32)
@@ -238,13 +245,13 @@ def create_2digit_mnist_image_leftright(digit1, digit2):
     return image
 
 
-def create_2digit_mnist_image_topbottom(digit1, digit2):
+def create_2digit_mnist_image_topbottom(digit1, digit2, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    h = randint(16, 18)
-    w = randint(0, 2)
+    h = rng.choice(range(16, 18+1))
+    w = rng.choice(range(0, 2+1))
     image[w : w + 28, h : h + 28] = digit1
 
     w = randint(30, 32)
@@ -255,13 +262,13 @@ def create_2digit_mnist_image_topbottom(digit1, digit2):
     return image
 
 
-def create_1digit_mnist_image_topleft(digit1):
+def create_1digit_mnist_image_topleft(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(0, 2)
-    h = randint(0, 4)
+    w = rng.choice(range(0, 2+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -269,13 +276,13 @@ def create_1digit_mnist_image_topleft(digit1):
     return image
 
 
-def create_1digit_mnist_image_topright(digit1):
+def create_1digit_mnist_image_topright(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(0, 2)
-    h = randint(28, 32)
+    w = rng.choice(range(0, 2+1))
+    h = rng.choice(range(28, 32+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -283,13 +290,13 @@ def create_1digit_mnist_image_topright(digit1):
     return image
 
 
-def create_1digit_mnist_image_bottomright(digit1):
+def create_1digit_mnist_image_bottomright(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(30, 32)
-    h = randint(28, 32)
+    w = rng.choice(range(30, 32+1))
+    h = rng.choice(range(28, 32+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -297,13 +304,13 @@ def create_1digit_mnist_image_bottomright(digit1):
     return image
 
 
-def create_1digit_mnist_image_bottomleft(digit1):
+def create_1digit_mnist_image_bottomleft(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(30, 32)
-    h = randint(0, 4)
+    w = rng.choice(range(30, 32+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
