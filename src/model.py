@@ -162,15 +162,15 @@ class AlignDraw(nn.Module):
 
             # The implementation of the official repo seems to be the following equation. I think it's wrong.
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
-            kl = 0.5 * (
-                torch.sum(
-                    ((self.mus[t] - self.mus_prior[t]) ** 2 + torch.exp(self.logvars[t]))
-                    / torch.exp(self.logvars_prior[t])
-                    - (self.logvars[t] - self.logvars_prior[t]),
-                    dim=1,
-                )
-                - self.T
-            )
+            # kl = 0.5 * (
+            #     torch.sum(
+            #         ((self.mus[t] - self.mus_prior[t]) ** 2 + torch.exp(self.logvars[t]))
+            #         / torch.exp(self.logvars_prior[t])
+            #         - (self.logvars[t] - self.logvars_prior[t]),
+            #         dim=1,
+            #     )
+            #     - self.T
+            # )
 
             # I think the following is correct.
             # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
@@ -178,14 +178,14 @@ class AlignDraw(nn.Module):
 
             # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
             # the former 2 is called kl loss, and the last is reconstruction loss
-            # kl = 0.5 * (
-            #     torch.sum(
-            #         (self.mus[t] - self.mus_prior[t]) ** 2
-            #         + torch.exp(self.logvars[t] - self.logvars_prior[t])
-            #         - (self.logvars[t] - self.logvars_prior[t]), dim=1
-            #     )
-            #     - self.T
-            # )
+            kl = 0.5 * (
+                torch.sum(
+                    (self.mus[t] - self.mus_prior[t]) ** 2
+                    + torch.exp(self.logvars[t] - self.logvars_prior[t])
+                    - (self.logvars[t] - self.logvars_prior[t]), dim=1
+                )
+                - self.T
+            )
             Lz += kl
 
         Lz = torch.mean(Lz)
