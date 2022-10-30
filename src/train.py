@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import shutil
+import math
 import random
 from random import randint
 
@@ -23,7 +24,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
 
-from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions, Captions
+from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
 from model import AlignDraw
 import utils
 
@@ -86,17 +87,37 @@ def main():
         logging.getLogger().addHandler(fh)
         # tensorboard
         writer = SummaryWriter(args.savedir)
-
+    
     # create dataset
+    val_batchsize = 64 # number of samples used to generate images
     if sys.argv[1] == "coco":
         train_data = COCOCaptions(datadir=args.datadir, split="train")
-        sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=5, minlen=7, maxlen=30)
+        sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_sampler=sampler)
+        
+        val_data = COCOCaptions(datadir=args.datadir, split="dev")
+        val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=val_batchsize, seed=args.seed)
+        val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
     elif sys.argv[1] == "mnist":
-        banned = [randint(0, 10) for i in range(12)]
-        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True)
+        banned = [randint(0, 10) for _ in range(12)]
+        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
-
+        
+        val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1)
+        val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
+    # save some groundtruth images and captions
+    for step, (imgs, captions) in enumerate(val_queue):
+        if step == 0:
+            grid = vutils.make_grid(imgs.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
+                                    nrow=int(math.sqrt(val_batchsize)), padding=1, normalize=True, pad_value=1)
+            vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
+            with open(Path(args.savedir, "gt_captions.txt"), "w") as f:
+                for cap in captions:
+                    f.write(val_data.decodeCaption(cap.tolist()) + "\n")
+        else:
+            break
+        
+            
     # model = AlignDraw
     model = AlignDraw(
         args.model[0].runSteps,
@@ -129,7 +150,6 @@ def main():
         model.train()
         
         for step, data in enumerate(train_queue):
-            t1 = time.time()
             image, caption = data
             
             image = image.to(device, non_blocking=True)
@@ -150,18 +170,13 @@ def main():
             if step % args.report_freq == 0:
                 logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
                 if args.save:
-                    writer.add_scalar("LossBatch", objs.avg, epoch * len(train_queue) + step)
-                    writer.add_scalar("LxBatch", objs_Lx.avg, epoch * len(train_queue) + step)
-                    writer.add_scalar("LzBatch", objs_Lz.avg, epoch * len(train_queue) + step)
-                
-                t2 = time.time()
-                if step // args.report_freq in [1,3,5]:
-                    hrs = (t2-t1)/3600 * len(train_queue)
-                    print(f"\t\testimated {hrs} hrs per epoch, {hrs*args.epochs} hrs all epochs")
+                    writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
+                    writer.add_scalar("LossBatch/Lx", objs_Lx.avg, epoch * len(train_queue) + step)
+                    writer.add_scalar("LossBatch/Lz", objs_Lz.avg, epoch * len(train_queue) + step)
         if args.save:
-            writer.add_scalar("LossEpoch", objs.avg, epoch)
-            writer.add_scalar("LxEpoch", objs_Lx.avg, epoch)
-            writer.add_scalar("LzEpoch", objs_Lz.avg, epoch)
+            writer.add_scalar("LossEpoch/L", objs.avg, epoch)
+            writer.add_scalar("LossEpoch/Lx", objs_Lx.avg, epoch)
+            writer.add_scalar("LossEpoch/Lz", objs_Lz.avg, epoch)
             writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch)
 
         train_obj = objs.avg
@@ -186,26 +201,26 @@ def main():
         )
 
         # generate images
-        # if (epoch + 1) % 10 == 0:
-        #     model.eval()
-        #     with torch.no_grad():
-        #         batch_size = 64
-        #         caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
-        #         caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
-        #         for step, data in enumerate(caption_queue):
-        #             data = data.to(device)
-        #             x = model.generate(data, batch_size)
+        if (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
+            model.eval()
+            val_data.reset()
+            with torch.no_grad():
+                for step, data in enumerate(val_queue):
+                    image, caption = data
+                    caption = caption.to(device)
+                    x = model.generate(caption)
+                    vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
 
-        #             fig = plt.figure(figsize=(16, 16))
-        #             plt.axis("off")
-        #             ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
-        #             anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
-        #             anim.save(
-        #                 Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
-        #                 dpi=100,
-        #                 writer="imagemagick",
-        #             )
-        #             plt.close("all")
+                    fig = plt.figure(figsize=(16, 16))
+                    plt.axis("off")
+                    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                    anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
+                    anim.save(
+                        Path(args.savedir, f"epoch_{epoch:d}.gif"),
+                        dpi=100,
+                        writer="imagemagick",
+                    )
+                    plt.close("all")
 
 
 if __name__ == "__main__":
