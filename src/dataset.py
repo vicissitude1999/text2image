@@ -133,9 +133,9 @@ class MNISTCaptions(Dataset):
 
     def __getitem__(self, index):
         while True:
-            k = self.rng.choice(7)
-            i = self.rng.choice(self.size)
-            j = self.rng.choice(self.size)
+            k = self.rng.choice(7+1)
+            i = self.rng.choice(self.size+1)
+            j = self.rng.choice(self.size+1)
 
             image = self.getImage(k, i, j)
             caption = self.getCaption(k, i, j)
@@ -152,17 +152,17 @@ class MNISTCaptions(Dataset):
     
     def getImage(self, k, i, j):
         if k == 0 or k == 1:
-            image = create_2digit_mnist_image_leftright(self.data[i], self.data[j])
+            image = create_2digit_mnist_image_leftright(self.data[i], self.data[j], self.rng)
         if k == 2 or k == 3:
-            image = create_2digit_mnist_image_topbottom(self.data[i], self.data[j])
+            image = create_2digit_mnist_image_topbottom(self.data[i], self.data[j], self.rng)
         if k == 4:
-            image = create_1digit_mnist_image_topleft(self.data[i])
+            image = create_1digit_mnist_image_topleft(self.data[i], self.rng)
         if k == 5:
-            image = create_1digit_mnist_image_bottomright(self.data[i])
+            image = create_1digit_mnist_image_bottomright(self.data[i], self.rng)
         if k == 6:
-            image = create_1digit_mnist_image_topright(self.data[i])
+            image = create_1digit_mnist_image_topright(self.data[i], self.rng)
         if k == 7:
-            image = create_1digit_mnist_image_bottomleft(self.data[i])
+            image = create_1digit_mnist_image_bottomleft(self.data[i], self.rng)
 
         return image
 
@@ -228,13 +228,13 @@ def matrix2sent(matrix, reverse_dictionary):
     return text
 
 
-def create_2digit_mnist_image_leftright(digit1, digit2):
+def create_2digit_mnist_image_leftright(digit1, digit2, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(16, 18)
-    h = randint(0, 4)
+    w = rng.choice(range(16, 18+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     h = randint(28, 32)
@@ -245,13 +245,13 @@ def create_2digit_mnist_image_leftright(digit1, digit2):
     return image
 
 
-def create_2digit_mnist_image_topbottom(digit1, digit2):
+def create_2digit_mnist_image_topbottom(digit1, digit2, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    h = randint(16, 18)
-    w = randint(0, 2)
+    h = rng.choice(range(16, 18+1))
+    w = rng.choice(range(0, 2+1))
     image[w : w + 28, h : h + 28] = digit1
 
     w = randint(30, 32)
@@ -262,13 +262,13 @@ def create_2digit_mnist_image_topbottom(digit1, digit2):
     return image
 
 
-def create_1digit_mnist_image_topleft(digit1):
+def create_1digit_mnist_image_topleft(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(0, 2)
-    h = randint(0, 4)
+    w = rng.choice(range(0, 2+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -276,13 +276,13 @@ def create_1digit_mnist_image_topleft(digit1):
     return image
 
 
-def create_1digit_mnist_image_topright(digit1):
+def create_1digit_mnist_image_topright(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(0, 2)
-    h = randint(28, 32)
+    w = rng.choice(range(0, 2+1))
+    h = rng.choice(range(28, 32+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -290,13 +290,13 @@ def create_1digit_mnist_image_topright(digit1):
     return image
 
 
-def create_1digit_mnist_image_bottomright(digit1):
+def create_1digit_mnist_image_bottomright(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(30, 32)
-    h = randint(28, 32)
+    w = rng.choice(range(30, 32+1))
+    h = rng.choice(range(28, 32+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)
@@ -304,13 +304,13 @@ def create_1digit_mnist_image_bottomright(digit1):
     return image
 
 
-def create_1digit_mnist_image_bottomleft(digit1):
+def create_1digit_mnist_image_bottomleft(digit1, rng):
     """Digits is list of numpy arrays, where each array is a digit"""
 
     image = np.zeros((60, 60), dtype=np.float32)
 
-    w = randint(30, 32)
-    h = randint(0, 4)
+    w = rng.choice(range(30, 32+1))
+    h = rng.choice(range(0, 4+1))
     image[w : w + 28, h : h + 28] = digit1
 
     image = image.reshape(-1)

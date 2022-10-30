@@ -70,7 +70,7 @@ def main():
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
-        utils.create_exp_dir(args.savedir, scripts_to_save=glob.glob("*.py"))
+        utils.create_exp_dir(args.savedir, scripts_to_save=glob.glob("src/*.py"))
         with open(Path(args.savedir, "args.json"), "w") as f:
             json.dump(args, f, indent=4)
     # logging
@@ -156,7 +156,7 @@ def main():
             caption = caption.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            Lx, Lz = model.loss((image, caption))
+            Lx, Lz = model.loss((image, caption), myloss=False)
             loss = Lx + Lz
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!
@@ -203,24 +203,28 @@ def main():
         # generate images
         if (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
-            val_data.reset()
+            if sys.argv[1] == "mnist":
+                val_data.reset() # only need to reset seed for mnist
             with torch.no_grad():
                 for step, data in enumerate(val_queue):
-                    image, caption = data
-                    caption = caption.to(device)
-                    x = model.generate(caption)
-                    vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
+                    if step == 0:
+                        image, caption = data
+                        caption = caption.to(device)
+                        x = model.generate(caption)
+                        vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
 
-                    fig = plt.figure(figsize=(16, 16))
-                    plt.axis("off")
-                    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
-                    anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
-                    anim.save(
-                        Path(args.savedir, f"epoch_{epoch:d}.gif"),
-                        dpi=100,
-                        writer="imagemagick",
-                    )
-                    plt.close("all")
+                        fig = plt.figure(figsize=(16, 16))
+                        plt.axis("off")
+                        ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                        anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
+                        anim.save(
+                            Path(args.savedir, f"epoch_{epoch:d}.gif"),
+                            dpi=100,
+                            writer="imagemagick",
+                        )
+                        plt.close("all")
+                    else:
+                        break
 
 
 if __name__ == "__main__":
