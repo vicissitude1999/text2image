@@ -8,7 +8,6 @@ import sys
 import shutil
 import math
 import random
-from random import randint
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -89,7 +88,7 @@ def main():
         writer = SummaryWriter(args.savedir)
     
     # create dataset
-    val_batchsize = 64 # number of samples used to generate images
+    val_batchsize = 100 # number of samples used to generate images
     if sys.argv[1] == "coco":
         train_data = COCOCaptions(datadir=args.datadir, split="train")
         sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=args.seed)
@@ -99,25 +98,14 @@ def main():
         val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=val_batchsize, seed=args.seed)
         val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
     elif sys.argv[1] == "mnist":
-        banned = [randint(0, 10) for _ in range(12)]
+        banned = np.random.choice(10+1, size=12, replace=True)
+        
         train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
         
         val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1)
         val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
-    # save some groundtruth images and captions
-    for step, (imgs, captions) in enumerate(val_queue):
-        if step == 0:
-            grid = vutils.make_grid(imgs.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
-                                    nrow=int(math.sqrt(val_batchsize)), padding=1, normalize=True, pad_value=1)
-            vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
-            with open(Path(args.savedir, "gt_captions.txt"), "w") as f:
-                for cap in captions:
-                    f.write(val_data.decodeCaption(cap.tolist()) + "\n")
-        else:
-            break
         
-            
     # model = AlignDraw
     model = AlignDraw(
         args.model[0].runSteps,
@@ -167,7 +155,7 @@ def main():
             objs_Lx.update(Lx.item(), n)
             objs_Lz.update(Lz.item(), n)
 
-            if step % args.report_freq == 0:
+            if step % args.report_freq == 0:                    
                 logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
                 if args.save:
                     writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
@@ -201,14 +189,21 @@ def main():
         )
 
         # generate images
-        if (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
+        if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
             if sys.argv[1] == "mnist":
-                val_data.reset() # only need to reset seed for mnist
+                val_data.reset() # only need to explicitly reset seed for mnist
             with torch.no_grad():
-                for step, data in enumerate(val_queue):
-                    if step == 0:
-                        image, caption = data
+                for step, (image, caption) in enumerate(val_queue):
+                    if step == 0 and epoch == 0: # save gt img and caption
+                        grid = vutils.make_grid(image.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
+                                nrow=int(math.sqrt(val_batchsize)), padding=1, normalize=True, pad_value=1)
+                        vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
+                                        
+                        with open(Path(args.savedir, f"gt_captions.txt"), "w") as f:
+                            for cap in caption:
+                                f.write(val_data.decodeCaption(cap.tolist()) + "\n")
+                    if step == 0: # save generated images
                         caption = caption.to(device)
                         x = model.generate(caption)
                         vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))

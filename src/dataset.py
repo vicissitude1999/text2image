@@ -16,8 +16,8 @@ from pathlib import Path
 class COCOCaptions(Dataset):
     # split: train, dev, test
     def __init__(self, datadir, split) -> None:
-        super().__init__()
-
+        self.split = split
+        
         # image data, n/5 * 3072 (=32*32*3)  each image has 5 captions
         data_path = Path(datadir, f"{split}-images-32x32.npy")
         # caption data, n * 57 (max length of caption)
@@ -74,19 +74,19 @@ class CaptionSameLenBatchSampler(Sampler):
         return self.size
 
     def __iter__(self):
+        if self.dataset.split != "train":
+            self.rng = np.random.default_rng(self.seed) # reset seed
+        
         batches = []
-
         for l in self.len_to_indices:
-            self.rng.shuffle(self.len_to_indices[l])
+            # shuffle here changes underlying data, so even resetting seed doesn't work!
+            inds = self.rng.permutation(self.len_to_indices[l])
             # torch.split doesn't work the same as np.split
-            for batch in torch.split(torch.tensor(self.len_to_indices[l]), self.batch_size):
+            for batch in torch.split(torch.tensor(inds), self.batch_size):
                 batches.append(batch.tolist())
         self.rng.shuffle(batches)
-
+        
         return iter(batches)
-
-    def reset(self):
-        self.rng = np.random.default_rng(self.seed)
 
 
 class MNISTCaptions(Dataset):
