@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, Sampler
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from random import randint
 import numpy as np
@@ -25,20 +26,32 @@ class COCOCaptions(Dataset):
         captions_len = Path(datadir, f"{split}-captions-len.npy")
         # mapping from caption index to image index # (essentially just i//5)
         cap2im = Path(datadir, f"{split}-cap2im.pkl")
+        # dictionary
+        dictionary = Path(datadir, "dictionary.pkl")
 
         self.data = np.load(data_path).astype(np.float32)
-        self.captions = np.load(captions_path).astype(np.int64)
+        captions = np.load(captions_path).astype(np.int64)
         self.captions_len = np.load(captions_len).astype(np.int32).reshape(-1)
+
         with open(cap2im, "rb") as f:
             self.cap2im = pickle.load(f)
+        with open(dictionary, "rb") as f:
+            self.dictionary = pickle.load(f)
+        self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
 
+        self.text = []
+        print('converting caption tokens')
+        for b in tqdm(range(self.captions_len.size)):
+            text = " ".join([self.reverse_dictionary[c] for c in captions[b] if c != 0])
+            self.text.append(text)
+        self.captions = clip.tokenize(self.text).squeeze().to(torch.int64)
     def __len__(self):
         return self.captions.shape[0]
 
     def __getitem__(self, index):
         # by using the custom batch sampler defined below, all captions within a batch have the same length,
         # so we don't need to use collate_fn to pad shorter captions
-        return self.data[self.cap2im[index]], self.captions[index][0 : self.captions_len[index]]
+        return self.data[self.cap2im[index]], self.captions[index]
     
 # custom batch sampler to make sure captions within a batch have the same length
 # the logic is identical to homogeneous-data.py in mansimov's code
@@ -75,9 +88,15 @@ class CaptionSameLenBatchSampler(Sampler):
 
         return iter(batches)
 
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
+
 class MNISTCaptions(Dataset):
-    def __init__(self, datadir, banned, size=10000, train=True) -> None:
-        self.banned = banned        
+    def __init__(self, datadir, banned, size=10000, train=True, seed=5) -> None:
+        self.banned = banned
+        self.train = train
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)   
         # may use transforms.ToTensor to convert PIL to 0-1 tensor
         mnist = datasets.MNIST(datadir, train=train, download=True)
         self.data = mnist.data.numpy() / 255  # 28 * 28, 0 - 255
@@ -89,16 +108,21 @@ class MNISTCaptions(Dataset):
     
     def __getitem__(self, index):
         while True:
-            k = randint(0, 7)
-            i = randint(0, self.size)
-            j = randint(0, self.size)
-            
+            k = self.rng.choice(7+1)
+            i = self.rng.choice(self.size+1)
+            j = self.rng.choice(self.size+1)
+
             image = self.getImage(k, i, j)
             caption = self.getCaption(k, i, j)
             if caption is None:
                 continue
-            
+
             return image, caption
+    
+    # reset the rng
+    # for example, when generating images, we want to generate the same set of data at each epoch
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
         
     def getImage(self, k, i, j):
         if k == 0 or k == 1:
@@ -118,15 +142,13 @@ class MNISTCaptions(Dataset):
     
     def getCaption(self, k, i, j):
         # some cases are hidden from training set
-        if k <= 3:
-            if (
-                self.targets[i] == self.banned[k * 2]
-                or self.targets[j] == self.banned[k * 2 + 1]
-            ):
-                return None
-        else:
-            if self.targets[i] == self.banned[k + 4]:
-                return None
+        if self.train:
+            if k <= 3:
+                if self.targets[i] == self.banned[k * 2] or self.targets[j] == self.banned[k * 2 + 1]:
+                    return None
+            else:
+                if self.targets[i] == self.banned[k + 4]:
+                    return None
 
         if k == 0:
             sentence = "the digit %d is on the left of the digit %d ." % (

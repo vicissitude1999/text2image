@@ -88,14 +88,22 @@ def main():
         writer = SummaryWriter(args.savedir)
 
     # create dataset
+    val_batchsize = 64 # number of samples used to generate images
     if sys.argv[1] == "coco":
         train_data = COCOCaptions(datadir=args.datadir, split="train")
-        sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=5, minlen=7, maxlen=30)
+        sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_sampler=sampler)
+        
+        val_data = COCOCaptions(datadir=args.datadir, split="dev")
+        val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=val_batchsize, seed=args.seed)
+        val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
     elif sys.argv[1] == "mnist":
-        banned = [randint(0, 10) for i in range(12)]
-        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True)
+        banned = [randint(0, 10) for _ in range(12)]
+        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
+        
+        val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1)
+        val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
 
     # model = AlignDraw
     model = AlignDrawClip(
@@ -186,26 +194,30 @@ def main():
         )
 
         # generate images
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
+            if sys.argv[1] == "mnist":
+                val_data.reset() # only need to reset seed for mnist
             with torch.no_grad():
-                batch_size = 64
-                caption_data = Captions(datadir=args.datadir, banned=banned, size=batch_size)
-                caption_queue = DataLoader(dataset=caption_data, batch_size=batch_size, shuffle=False, drop_last=False)
-                for step, data in enumerate(caption_queue):
-                    data = data.to(device)
-                    x = model.generate(data, batch_size)
+                for step, data in enumerate(val_queue):
+                    if step == 0:
+                        image, caption = data
+                        caption = caption.to(device)
+                        x = model.generate(caption)
+                        vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
 
-                    fig = plt.figure(figsize=(16, 16))
-                    plt.axis("off")
-                    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
-                    anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
-                    anim.save(
-                        Path(args.savedir, f"draw_epoch_{epoch:d}.gif"),
-                        dpi=100,
-                        writer="imagemagick",
-                    )
-                    plt.close("all")
+                        fig = plt.figure(figsize=(16, 16))
+                        plt.axis("off")
+                        ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                        anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
+                        anim.save(
+                            Path(args.savedir, f"epoch_{epoch:d}.gif"),
+                            dpi=100,
+                            writer="imagemagick",
+                        )
+                        plt.close("all")
+                    else:
+                        break
 
 
 if __name__ == "__main__":

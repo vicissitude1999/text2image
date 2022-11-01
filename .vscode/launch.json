@@ -3,7 +3,7 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     // Train
-    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train.py mnist tools/mnist-captions.json
+    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train.py coco tools/coco-captions-32x32.json
     // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train_clip.py coco tools/coco-captions-clip.json
     // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client clip/zero_shot_pred_test.py
     "version": "0.2.0",
@@ -13,7 +13,7 @@
             "type": "python",
             "request": "attach",
             "connect": {
-                "host": "localhost",
+                "host": "calculon",
                 "port": 5678
             },
             "pathMappings": [

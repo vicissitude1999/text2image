@@ -44,7 +44,7 @@ class AlignDrawClip(nn.Module):
 
         self.lang = nn.LSTM(dimY, dimLangRNN)
         self.clip, preprocess = clip.load('ViT-B/32', device)
-        self.encoder = nn.LSTMCell(2 * self.N * self.N + dimRNNDec, dimRNNEnc)
+        self.encoder = nn.LSTMCell(2 * self.N * self.N * channels + dimRNNDec, dimRNNEnc)
         # Q(z|x) parameters
         self.w_mu = nn.Linear(dimRNNEnc, dimZ)
         self.w_logvar = nn.Linear(dimRNNEnc, dimZ)
@@ -59,7 +59,7 @@ class AlignDrawClip(nn.Module):
 
         self.decoder = nn.LSTMCell(dimZ + 2 * dimLangRNN, dimRNNDec)
         self.w_dec_attn = nn.Linear(dimRNNDec, 5)
-        self.w_dec = nn.Linear(dimRNNDec, self.N * self.N)
+        self.w_dec = nn.Linear(dimRNNDec, self.N * self.N * channels)
 
         # records of canvas matrices, and mu, logvars (used to 0compute loss)
         self.cs = [0] * self.T
@@ -130,7 +130,7 @@ class AlignDrawClip(nn.Module):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A * self.B, device=self.device, requires_grad=True)
+                else torch.zeros(batch_size, self.A * self.B * self.channels, device=self.device, requires_grad=True)
             )
             # eq. 10 -> 13
             img_hat = img - torch.sigmoid(c_prev)
@@ -160,55 +160,55 @@ class AlignDrawClip(nn.Module):
             h_enc_prev = h_enc
             h_dec_prev = h_dec
 
-    def loss(self, x):
+    def loss(self, x, myloss=False):
         img, caption = x
         self.forward(x)
 
         criterion = nn.BCELoss()
         x_recon = torch.sigmoid(self.cs[-1])
         # reconstruction loss
-        Lx = criterion(x_recon, img) * self.A * self.B
+        Lx = criterion(x_recon, img) * self.A * self.B * self.channels
         # kl loss
-        Lz = 0 # technically it should be a tensor with Size([batch_size])
+        Lz = 0  # technically it should be a tensor with Size([batch_size])
         for t in range(self.T):
             # kl loss in DRAW (assuming P(z) ~ N(0, I))
             # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t], dim=1) - self.T)
 
             # The implementation of the official repo seems to be the following equation. I think it's wrong.
             # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
-            kl = 0.5 * (
-                torch.sum(
-                    (
-                        (self.mus[t] - self.mus_prior[t]) ** 2
-                        + torch.exp(self.logvars[t])
+            if not myloss:
+                kl = 0.5 * (
+                    torch.sum(
+                        ((self.mus[t] - self.mus_prior[t]) ** 2 + torch.exp(self.logvars[t]))
+                        / torch.exp(self.logvars_prior[t])
+                        - (self.logvars[t] - self.logvars_prior[t]),
+                        dim=1,
                     )
-                    / torch.exp(self.logvars_prior[t])
-                    - (self.logvars[t] - self.logvars_prior[t]), dim=1
+                    - self.T
                 )
-                - self.T
-            )
-
+            else:
             # I think the following is correct.
             # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
             # This can be derived from computing E_z~q [ln q(z|x) - ln p(z)]
 
             # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
             # the former 2 is called kl loss, and the last is reconstruction loss
-            # kl = 0.5 * (
-            #     torch.sum(
-            #         (self.mus[t] - self.mus_prior[t]) ** 2
-            #         + torch.exp(self.logvars[t] - self.logvars_prior[t])
-            #         - (self.logvars[t] - self.logvars_prior[t]), dim=1
-            #     )
-            #     - self.T
-            # )
+                kl = 0.5 * (
+                    torch.sum(
+                        (self.mus[t] - self.mus_prior[t]) ** 2
+                        + torch.exp(self.logvars[t] - self.logvars_prior[t])
+                        - (self.logvars[t] - self.logvars_prior[t]), dim=1
+                    )
+                    - self.T
+                )
             Lz += kl
-            
+
         Lz = torch.mean(Lz)
-        
+
         return Lx, Lz
 
-    def generate(self, caption, batch_size):
+    def generate(self, caption):
+        batch_size = caption.size(0)
         self.batch_size = batch_size
         h_dec_prev = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
         dec_state = torch.zeros(batch_size, self.dimRNNDec, device=self.device)
@@ -222,7 +222,7 @@ class AlignDrawClip(nn.Module):
             c_prev = (
                 self.cs[t - 1]
                 if t > 0
-                else torch.zeros(batch_size, self.A * self.B, device=self.device)
+                else torch.zeros(batch_size, self.A * self.B * self.channels, device=self.device)
             )
             z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(mu_prior)
             s_t = self.alignment(clip_feat, h_dec_prev, lang_feat)
@@ -235,14 +235,8 @@ class AlignDrawClip(nn.Module):
 
         imgs = []
         for img in self.cs:
-            img = torch.sigmoid(img.detach().cpu().view(-1, 1, self.B, self.A))
-            grid = vutils.make_grid(
-                img,
-                nrow=int(math.sqrt(batch_size)),
-                padding=1,
-                normalize=True,
-                pad_value=1,
-            )
+            img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.B, self.A))
+            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
             imgs.append(grid)
 
         return imgs
@@ -250,14 +244,15 @@ class AlignDrawClip(nn.Module):
     ######## write
     def write(self, h_dec=0):
         w = self.w_dec(h_dec)
-        w = w.view(self.batch_size, self.N, self.N)
-        # w = Variable(torch.ones(4,5,5) * 3)
-        # self.batch_size = 4
+        if self.channels == 3:
+            w = w.view(self.batch_size, 3, self.N, self.N)
+        elif self.channels == 1:
+            w = w.view(self.batch_size, self.N, self.N)
         (Fx, Fy), gamma = self.attn_window(h_dec)
-        Fyt = Fy.transpose(2, 1)
-        # wr = matmul(Fyt,matmul(w,Fx))
-        wr = Fyt.bmm(w.bmm(Fx))
-        wr = wr.view(self.batch_size, self.A * self.B)
+        Fyt = Fy.transpose(self.channels, 2)
+
+        wr = torch.matmul(Fyt, torch.matmul(w, Fx))
+        wr = wr.view(self.batch_size, self.A * self.B * self.channels)
 
         return wr / gamma.view(-1, 1).expand_as(wr)
 
@@ -265,17 +260,19 @@ class AlignDrawClip(nn.Module):
     def read(self, x, x_hat, h_dec_prev):
         (Fx, Fy), gamma = self.attn_window(h_dec_prev)
 
-        def filter_img(img, Fx, Fy, gamma, A, B, N):
-            Fxt = Fx.transpose(2, 1)
-            img = img.view(-1, B, A)
-            # img = img.transpose(2,1)
-            # glimpse = matmul(Fy,matmul(img,Fxt))P
-            glimpse = Fy.bmm(img.bmm(Fxt))
-            glimpse = glimpse.view(-1, N * N)
+        def filter_img(img, Fx, Fy, gamma, A, B, channels, N):
+            Fxt = Fx.transpose(channels, 2)
+            if channels == 3:
+                img = img.view(-1, 3, B, A)
+            elif channels == 1:
+                img = img.view(-1, B, A)
+            glimpse = torch.matmul(Fy, torch.matmul(img, Fxt))
+            glimpse = glimpse.view(-1, N * N * channels)
+
             return glimpse * gamma.view(-1, 1).expand_as(glimpse)
 
-        x = filter_img(x, Fx, Fy, gamma, self.A, self.B, self.N)
-        x_hat = filter_img(x_hat, Fx, Fy, gamma, self.A, self.B, self.N)
+        x = filter_img(x, Fx, Fy, gamma, self.A, self.B, self.channels, self.N)
+        x_hat = filter_img(x_hat, Fx, Fy, gamma, self.A, self.B, self.channels, self.N)
 
         return torch.cat((x, x_hat), 1)
 
@@ -294,7 +291,7 @@ class AlignDrawClip(nn.Module):
 
     def filterbank(self, gx, gy, sigma2, delta, epsilon=1e-9):
         grid_i = torch.arange(0.0, self.N, device=self.device, requires_grad=True).view(1, -1)
-        
+
         # Equation 19.
         mu_x = gx + (grid_i - self.N / 2 - 0.5) * delta
         # Equation 20.
@@ -312,5 +309,12 @@ class AlignDrawClip(nn.Module):
 
         Fx = Fx / (Fx.sum(2, True).expand_as(Fx) + epsilon)
         Fy = Fy / (Fy.sum(2, True).expand_as(Fy) + epsilon)
+
+        if self.channels == 3:
+            Fx = Fx.view(Fx.size(0), 1, Fx.size(1), Fx.size(2))
+            Fx = Fx.repeat(1, 3, 1, 1)
+
+            Fy = Fy.view(Fy.size(0), 1, Fy.size(1), Fy.size(2))
+            Fy = Fy.repeat(1, 3, 1, 1)
 
         return Fx, Fy

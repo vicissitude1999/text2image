@@ -1,0 +1,1 @@
+python src/train_clip.py coco tools/coco-captions-clip.json
