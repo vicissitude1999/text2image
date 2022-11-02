@@ -23,8 +23,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
 
-from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
-from model import AlignDraw
+from model import AlignDraw, AlignDrawClip
 import utils
 
 
@@ -66,6 +65,13 @@ def main():
     init_seeds(args.seed, False)
     device = "cuda"
 
+    model_type = sys.argv[3]  # clip/base
+
+    if model_type == 'clip':
+        from dataset_clip import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions, Captions
+    else:
+        from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
+
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
@@ -106,22 +112,39 @@ def main():
         val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1)
         val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
         
-    # model = AlignDraw
-    model = AlignDraw(
-        args.model[0].runSteps,
-        args.model[0].dimReadAttent,
-        args.model[0].dimWriteAttent,
-        args.model[0].dimA,
-        args.model[0].dimB,
-        args.model[0].channels,
-        args.model[0].dimY,
-        args.model[0].dimLangRNN,
-        args.model[0].dimRNNEnc,
-        args.model[0].dimZ,
-        args.model[0].dimRNNDec,
-        args.model[0].dimAlign,
-        device=device,
-    ).to(device)
+    if model_type == 'clip':
+        model = AlignDrawClip(
+                args.model[0].runSteps,
+                args.model[0].dimReadAttent,
+                args.model[0].dimWriteAttent,
+                args.model[0].dimA,
+                args.model[0].dimB,
+                args.model[0].channels,
+                args.model[0].dimY,
+                args.model[0].dimLangRNN,
+                args.model[0].dimRNNEnc,
+                args.model[0].dimZ,
+                args.model[0].dimRNNDec,
+                args.model[0].dimAlign,
+                device=device,
+            ).to(device)
+    else:
+        # model = AlignDraw
+        model = AlignDraw(
+            args.model[0].runSteps,
+            args.model[0].dimReadAttent,
+            args.model[0].dimWriteAttent,
+            args.model[0].dimA,
+            args.model[0].dimB,
+            args.model[0].channels,
+            args.model[0].dimY,
+            args.model[0].dimLangRNN,
+            args.model[0].dimRNNEnc,
+            args.model[0].dimZ,
+            args.model[0].dimRNNDec,
+            args.model[0].dimAlign,
+            device=device,
+        ).to(device)
     model.apply(initialize_weights)
 
     optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
@@ -200,6 +223,8 @@ def main():
                                 nrow=int(math.sqrt(val_batchsize)), padding=1, normalize=True, pad_value=1)
                         vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
                                         
+                        if model_type == 'clip':
+                            continue
                         with open(Path(args.savedir, f"gt_captions.txt"), "w") as f:
                             for cap in caption:
                                 f.write(val_data.decodeCaption(cap.tolist()) + "\n")
