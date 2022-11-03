@@ -103,7 +103,7 @@ class AlignDrawClip(nn.Module):
         # seq * B * dimAlign
         all_align = torch.tanh(hid_align + h_dec_align)
         # seq * B
-        e = self.w_v_align(all_align).squeeze()
+        e = self.w_v_align(all_align).squeeze(-1)
         alpha = torch.softmax(e, dim=0)
         # B * (2*dimLangRNN)
         s_t = (alpha[:, :, None] * h_t_lang).sum(axis=0)

@@ -89,7 +89,7 @@ class AlignDraw(nn.Module):
         # seq * B * dimAlign
         all_align = torch.tanh(hid_align + h_dec_align)
         # seq * B
-        e = self.w_v_align(all_align).squeeze()
+        e = self.w_v_align(all_align).squeeze(-1)
         alpha = torch.softmax(e, dim=0)
         # B * (2*dimLangRNN)
         s_t = (alpha[:, :, None] * h_t_lang).sum(axis=0)
@@ -221,8 +221,7 @@ class AlignDraw(nn.Module):
         imgs = []
         for img in self.cs:
             img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.B, self.A))
-            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
-            imgs.append(grid)
+            imgs.append(img)
 
         return imgs
 

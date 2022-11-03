@@ -1,23 +1,21 @@
 from collections import defaultdict
 import math
-
+import clip
 import torch
 from torch.utils.data import Dataset, Sampler
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from random import randint
 import numpy as np
 import pickle
 from pathlib import Path
 
-
 class COCOCaptions(Dataset):
     # split: train, dev, test
-    def __init__(self, datadir, split) -> None:
-        self.split = split
-        
+    def __init__(self, datadir, split, mode="clip"):
         # image data, n/5 * 3072 (=32*32*3)  each image has 5 captions
         data_path = Path(datadir, f"{split}-images-32x32.npy")
         # caption data, n * 57 (max length of caption)
@@ -28,27 +26,40 @@ class COCOCaptions(Dataset):
         cap2im = Path(datadir, f"{split}-cap2im.pkl")
         # dictionary
         dictionary = Path(datadir, "dictionary.pkl")
+        self.mode = mode
 
         self.data = np.load(data_path).astype(np.float32)
-        self.captions = np.load(captions_path).astype(np.int64)
+        captions = np.load(captions_path).astype(np.int64)
         self.captions_len = np.load(captions_len).astype(np.int32).reshape(-1)
+
         with open(cap2im, "rb") as f:
             self.cap2im = pickle.load(f)
         with open(dictionary, "rb") as f:
             self.dictionary = pickle.load(f)
         self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
-
+        
+        if self.mode == "clip":
+            self.text = []
+            print('converting caption tokens')
+            for b in tqdm(range(self.captions_len.size)):
+                text = " ".join([self.reverse_dictionary[c] for c in captions[b] if c != 0])
+                self.text.append(text)
+            self.captions = clip.tokenize(self.text).squeeze().to(torch.int64)
+        else:
+            self.captions = captions
     def __len__(self):
         return self.captions.shape[0]
 
     def __getitem__(self, index):
+        if self.mode == "clip":
+            return self.data[self.cap2im[index]], self.captions[index]
         # by using the custom batch sampler defined below, all captions within a batch have the same length,
         # so we don't need to use collate_fn to pad shorter captions
-        return self.data[self.cap2im[index]], self.captions[index][0 : self.captions_len[index]]
-
+        else:
+            return self.data[self.cap2im[index]], self.captions[index][0 : self.captions_len[index]]
+    
     def decodeCaption(self, caption):
         return " ".join([self.reverse_dictionary[c] for c in caption])
-
 
 # custom batch sampler to make sure captions within a batch have the same length
 # the logic is identical to homogeneous-data.py in mansimov's code
@@ -74,9 +85,6 @@ class CaptionSameLenBatchSampler(Sampler):
         return self.size
 
     def __iter__(self):
-        if self.dataset.split != "train":
-            self.rng = np.random.default_rng(self.seed) # reset seed
-        
         batches = []
         for l in self.len_to_indices:
             # shuffle here changes underlying data, so even resetting seed doesn't work!
@@ -87,15 +95,18 @@ class CaptionSameLenBatchSampler(Sampler):
         self.rng.shuffle(batches)
         
         return iter(batches)
+    
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
 
 
 class MNISTCaptions(Dataset):
-    def __init__(self, datadir, banned, size=10000, train=True, seed=5) -> None:
+    def __init__(self, datadir, banned, size=10000, train=True, seed=5, mode="clip"):
         self.banned = banned
         self.train = train
         self.seed = seed
+        self.mode = mode
         self.rng = np.random.default_rng(seed)
-
         self.dictionary = {
             "0": 0,
             "1": 1,
@@ -121,16 +132,16 @@ class MNISTCaptions(Dataset):
             ".": 21,
         }
         self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
-
+        
         # may use transforms.ToTensor to convert PIL to 0-1 tensor
         mnist = datasets.MNIST(datadir, train=train, download=True)
         self.data = mnist.data.numpy() / 255  # 28 * 28, 0 - 255
         self.targets = mnist.targets.numpy()
         self.size = size
-        
+
     def __len__(self):
         return self.size
-
+    
     def __getitem__(self, index):
         while True:
             k = self.rng.choice(7+1)
@@ -143,13 +154,12 @@ class MNISTCaptions(Dataset):
                 continue
 
             return image, caption
-        
+    
     # reset the rng
     # for example, when generating images, we want to generate the same set of data at each epoch
     def reset(self):
         self.rng = np.random.default_rng(self.seed)
-    
-    
+        
     def getImage(self, k, i, j):
         if k == 0 or k == 1:
             image = create_2digit_mnist_image_leftright(self.data[i], self.data[j], self.rng)
@@ -165,7 +175,7 @@ class MNISTCaptions(Dataset):
             image = create_1digit_mnist_image_bottomleft(self.data[i], self.rng)
 
         return image
-
+    
     def getCaption(self, k, i, j):
         # some cases are hidden from training set
         if self.train:
@@ -192,15 +202,77 @@ class MNISTCaptions(Dataset):
             sentence = "the digit %d is at the top right of the image ." % (self.targets[i])
         elif k == 7:
             sentence = "the digit %d is at the bottom left of the image ." % (self.targets[i])
-
-        caption = sent2matrix(sentence, self.dictionary)
-
+        
+        if self.mode == "clip":
+            caption = clip.tokenize(sentence).squeeze().to(torch.int64)
+        else:
+            caption = sent2matrix(sentence, self.dictionary)
+            
         return caption
     
     def decodeCaption(self, caption):
         return " ".join([self.reverse_dictionary[c] for c in caption])
 
 
+class MNISTCaptionsOnly(Dataset):
+    def __init__(self, caption_path):
+        captions = []
+        with open(caption_path, "r") as f:
+            for line in f:
+                captions.append(line.strip())
+        self.captions = captions
+        self.dictionary = {
+                "0": 0,
+                "1": 1,
+                "2": 2,
+                "3": 3,
+                "4": 4,
+                "5": 5,
+                "6": 6,
+                "7": 7,
+                "8": 8,
+                "9": 9,
+                "the": 10,
+                "digit": 11,
+                "is": 12,
+                "on": 13,
+                "at": 14,
+                "left": 15,
+                "right": 16,
+                "bottom": 17,
+                "top": 18,
+                "of": 19,
+                "image": 20,
+                ".": 21,
+            }
+    
+    def __len__(self):
+        return len(self.captions)
+    
+    def __getitem__(self, index):
+        return sent2matrix(self.captions[index], self.dictionary)
+
+class COCOCaptionsOnly(Dataset):
+    def __init__(self, caption_path, datadir):
+        captions = []
+        captions_len = []
+        with open(caption_path, "r") as f:
+            for line in f:
+                captions.append(line.strip())
+                captions_len.append(len(line.strip().split(" ")))
+        self.captions = captions
+        self.captions_len = captions_len
+        # dictionary
+        with open(Path(datadir, "dictionary.pkl"), "rb") as f:
+            self.dictionary = pickle.load(f)
+            
+    def __len__(self):
+        return len(self.captions)
+    
+    def __getitem__(self, index):
+        return sent2matrix(self.captions[index], self.dictionary)
+    
+    
 def create_reverse_dictionary(dictionary):
     dictionary_reverse = {}
 
@@ -316,7 +388,6 @@ def create_1digit_mnist_image_bottomleft(digit1, rng):
     image = image.reshape(-1)
 
     return image
-
 
 if __name__ == "__main__":
     # cap = datasets.CocoCaptions(root = "data/coco/train2014/",

@@ -25,6 +25,7 @@ import torchvision.utils as vutils
 
 from model import AlignDraw, AlignDrawClip
 import utils
+from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
 
 
 def init_seeds(seed=0, cuda_deterministic=False):
@@ -67,11 +68,6 @@ def main():
 
     model_type = sys.argv[3]  # clip/base
 
-    if model_type == 'clip':
-        from dataset_clip import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions, Captions
-    else:
-        from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
-
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
@@ -96,41 +92,24 @@ def main():
     # create dataset
     val_batchsize = 100 # number of samples used to generate images
     if sys.argv[1] == "coco":
-        train_data = COCOCaptions(datadir=args.datadir, split="train")
+        train_data = COCOCaptions(datadir=args.datadir, split="train", mode=model_type)
         sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_sampler=sampler)
         
-        val_data = COCOCaptions(datadir=args.datadir, split="dev")
+        val_data = COCOCaptions(datadir=args.datadir, split="dev", mode=model_type)
         val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=val_batchsize, seed=args.seed)
         val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
     elif sys.argv[1] == "mnist":
         banned = np.random.choice(10+1, size=12, replace=True)
         
-        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed)
+        train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed, mode=model_type)
         train_queue = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
         
-        val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1)
+        val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1, mode=model_type)
         val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
         
-    if model_type == 'clip':
-        model = AlignDrawClip(
-                args.model[0].runSteps,
-                args.model[0].dimReadAttent,
-                args.model[0].dimWriteAttent,
-                args.model[0].dimA,
-                args.model[0].dimB,
-                args.model[0].channels,
-                args.model[0].dimY,
-                args.model[0].dimLangRNN,
-                args.model[0].dimRNNEnc,
-                args.model[0].dimZ,
-                args.model[0].dimRNNDec,
-                args.model[0].dimAlign,
-                device=device,
-            ).to(device)
-    else:
-        # model = AlignDraw
-        model = AlignDraw(
+    aligndraw = AlignDrawClip if model_type == "clip" else AlignDraw
+    model = aligndraw(
             args.model[0].runSteps,
             args.model[0].dimReadAttent,
             args.model[0].dimWriteAttent,
@@ -146,7 +125,7 @@ def main():
             device=device,
         ).to(device)
     model.apply(initialize_weights)
-
+    
     optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[args.reduceLRAfter], gamma=0.1)
 
@@ -214,8 +193,7 @@ def main():
         # generate images
         if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
-            if sys.argv[1] == "mnist":
-                val_data.reset() # only need to explicitly reset seed for mnist
+            val_data.reset()
             with torch.no_grad():
                 for step, (image, caption) in enumerate(val_queue):
                     if step == 0 and epoch == 0: # save gt img and caption
