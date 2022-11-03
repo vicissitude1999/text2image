@@ -8,7 +8,11 @@ To train MNIST, run
 ```
 python src/train.py mnist tools/mnist-captions.json
 ```
-MNIST data will be automatically downloaded by PyTorch to text2image/data/
+To test MNIST, run
+```
+python src/test.py --train_dir --caption_path --dataset --batch_size --model_type
+```
+Examples are in tools/test.sh
 
 ### COCO with Captions
 Download the following to text2image/data/
@@ -34,6 +38,11 @@ To train COCO, run
 ```
 python src/train.py coco tools/coco-captions-32x32.json
 ```
+To test COCO, run
+```
+python src/test.py --train_dir --caption_path --dataset --batch_size --model_type
+```
+Examples are in tools/test.sh
 
 ### Reference
 
