@@ -205,7 +205,7 @@ class MNISTCaptions(Dataset):
         
         if self.mode == "clip":
             caption = clip.tokenize(sentence).squeeze().to(torch.int64)
-        else:
+        elif self.mode == "base":
             caption = sent2matrix(sentence, self.dictionary)
             
         return caption
@@ -215,11 +215,12 @@ class MNISTCaptions(Dataset):
 
 
 class MNISTCaptionsOnly(Dataset):
-    def __init__(self, caption_path):
+    def __init__(self, caption_path, mode="clip"):
         captions = []
         with open(caption_path, "r") as f:
             for line in f:
                 captions.append(line.strip())
+        self.mode = mode
         self.captions = captions
         self.dictionary = {
                 "0": 0,
@@ -250,27 +251,41 @@ class MNISTCaptionsOnly(Dataset):
         return len(self.captions)
     
     def __getitem__(self, index):
-        return sent2matrix(self.captions[index], self.dictionary)
-
+        if self.mode == "clip":
+            caption = clip.tokenize(self.captions[index]).squeeze().to(torch.int64)
+        elif self.mode == "base":
+            caption = sent2matrix(self.captions[index], self.dictionary)
+        
+        return caption
+    
 class COCOCaptionsOnly(Dataset):
-    def __init__(self, caption_path, datadir):
-        captions = []
+    def __init__(self, caption_path, datadir, mode="clip"):
+        self.mode = mode
+        captions = [] # in text format, no padding
         captions_len = []
         with open(caption_path, "r") as f:
             for line in f:
                 captions.append(line.strip())
                 captions_len.append(len(line.strip().split(" ")))
-        self.captions = captions
+        self.l = len(captions)
         self.captions_len = captions_len
+        
         # dictionary
         with open(Path(datadir, "dictionary.pkl"), "rb") as f:
             self.dictionary = pickle.load(f)
             
+        if self.mode == "clip":
+            self.captions = clip.tokenize(captions).squeeze().to(torch.int64)
+        elif self.mode == "base":
+            self.captions = []
+            for caption in captions:
+                self.captions.append(sent2matrix(caption, self.dictionary))
+                
     def __len__(self):
-        return len(self.captions)
+        return self.l
     
     def __getitem__(self, index):
-        return sent2matrix(self.captions[index], self.dictionary)
+        return self.captions[index]
     
     
 def create_reverse_dictionary(dictionary):

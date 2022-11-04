@@ -527,7 +527,7 @@ class AlignDrawClip(nn.Module):
         imgs = []
         for img in self.cs:
             img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.B, self.A))
-            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), padding=1, normalize=True, pad_value=1)
+            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), pad_value=1)
             imgs.append(grid)
 
         return imgs

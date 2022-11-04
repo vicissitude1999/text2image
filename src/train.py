@@ -198,9 +198,9 @@ def main():
                 for step, (image, caption) in enumerate(val_queue):
                     if step == 0 and epoch == 0: # save gt img and caption
                         grid = vutils.make_grid(image.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
-                                nrow=int(math.sqrt(val_batchsize)), padding=1, normalize=True, pad_value=1)
+                                nrow=int(math.sqrt(val_batchsize)), pad_value=1)
                         vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
-                                        
+                        
                         if model_type == 'clip':
                             continue
                         with open(Path(args.savedir, f"gt_captions.txt"), "w") as f:
@@ -208,12 +208,17 @@ def main():
                                 f.write(val_data.decodeCaption(cap.tolist()) + "\n")
                     if step == 0: # save generated images
                         caption = caption.to(device)
-                        x = model.generate(caption)
-                        vutils.save_image(x[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
-
+                        imgs = model.generate(caption)
+                        grids = []
+                        
+                        for img in imgs:
+                            grids.append(vutils.make_grid(img, nrow=int(math.sqrt(args.batch_size)), pad_value=1))
+                        
+                        vutils.save_image(grids[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
+                        
                         fig = plt.figure(figsize=(16, 16))
                         plt.axis("off")
-                        ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in x]
+                        ims = [[plt.imshow(np.transpose(grid, (1, 2, 0)), animated=True)] for grid in grids]
                         anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
                         anim.save(
                             Path(args.savedir, f"epoch_{epoch:d}.gif"),

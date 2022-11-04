@@ -65,15 +65,17 @@ def main():
     
     # create dataset
     if args.dataset == "coco":
-        val_data = COCOCaptionsOnly(caption_path=args.caption_path, datadir=args.datadir)
+        val_data = COCOCaptionsOnly(caption_path=args.caption_path, datadir=args.datadir, mode=args.model_type)
         val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=args.batch_size, seed=args.seed)
         # need to save the original order
-        batch_indices = []
-        for ind in val_sampler:
-            batch_indices.append(ind)
-        val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
+        # TODO make it work for input captions with difference lengths
+        # batch_indices = []
+        # for ind in val_sampler:
+        #     batch_indices.append(ind)
+        # val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
+        val_queue = DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
     elif args.dataset == "mnist":
-        val_data = MNISTCaptionsOnly(caption_path=args.caption_path)
+        val_data = MNISTCaptionsOnly(caption_path=args.caption_path, mode=args.model_type)
         val_queue = DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
         
     aligndraw = AlignDrawClip if args.model_type == "clip" else AlignDraw
@@ -103,9 +105,9 @@ def main():
             grids = []
             
             for img in imgs:
-                if args.dataset == "coco":
-                    img = img[batch_indices[step]]
-                grids.append(vutils.make_grid(img, nrow=int(math.sqrt(args.batch_size)), padding=1, normalize=True, pad_value=1))
+                # if args.dataset == "coco":
+                #     img = img[batch_indices[step]]
+                grids.append(vutils.make_grid(img, nrow=int(math.sqrt(args.batch_size)), pad_value=1))
         
             vutils.save_image(grids[-1], Path(args.savedir, f"batch_{step:d}.jpg"))
             

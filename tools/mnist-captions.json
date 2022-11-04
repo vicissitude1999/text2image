@@ -16,7 +16,7 @@
         }
     ],
     "seed": 5,
-    "save": true,
+    "save": false,
     "savedir": "outputs/mnist",
     "lr": 0.001,
     "epochs": 150,
