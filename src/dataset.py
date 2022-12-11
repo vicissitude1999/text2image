@@ -61,6 +61,9 @@ class COCOCaptions(Dataset):
     def decodeCaption(self, caption):
         return " ".join([self.reverse_dictionary[c] for c in caption])
 
+    def reset(self):
+        self.rng = np.random.default_rng(self.seed)
+
 # custom batch sampler to make sure captions within a batch have the same length
 # the logic is identical to homogeneous-data.py in mansimov's code
 class CaptionSameLenBatchSampler(Sampler):
