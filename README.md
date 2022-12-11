@@ -6,7 +6,8 @@ PyTorch implementation of paper paper [Generating Images from Captions with Atte
 ### MNIST with Captions
 To train MNIST, run
 ```
-python src/train.py mnist tools/mnist-captions.json
+bash tools/train.sh # AlignDRAW
+bash tools/train_clip.sh #clip_AlignDRAW
 ```
 To test MNIST, run
 ```
@@ -36,7 +37,8 @@ wget http://www.cs.toronto.edu/~emansim/datasets/text2image/dictionary.pkl
 ```
 To train COCO, run
 ```
-python src/train.py coco tools/coco-captions-32x32.json
+bash tools/train.sh # AlignDRAW
+bash tools/train_clip.sh #clip_AlignDRAW
 ```
 To test COCO, run
 ```
