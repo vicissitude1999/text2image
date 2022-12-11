@@ -20,7 +20,7 @@
     "savedir": "outputs/coco32_clip",
     "lr": 0.001,
     "epochs": 18,
-    "batch_size": 160,
+    "batch_size": 320,
     "report_freq": 20,
     "reduceLRAfter": 11,
     "pathToWeights": "None",

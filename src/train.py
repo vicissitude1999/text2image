@@ -129,6 +129,7 @@ def main():
         model.train()
         
         for step, data in enumerate(train_queue):
+            # continue
             image, caption = data
             
             image = image.to(device, non_blocking=True)
@@ -182,7 +183,10 @@ def main():
         # generate images
         if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
-            val_data.reset()
+            if sys.argv[1] == "coco":
+                val_sampler.reset()
+            elif sys.argv[1] == "mnist":
+                val_data.reset()
             with torch.no_grad():
                 for step, (image, caption) in enumerate(val_queue):
                     if step == 0 and epoch == 0: # save gt img and caption
