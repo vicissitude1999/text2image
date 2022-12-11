@@ -107,29 +107,8 @@ class MNISTCaptions(Dataset):
         self.seed = seed
         self.mode = mode
         self.rng = np.random.default_rng(seed)
-        self.dictionary = {
-            "0": 0,
-            "1": 1,
-            "2": 2,
-            "3": 3,
-            "4": 4,
-            "5": 5,
-            "6": 6,
-            "7": 7,
-            "8": 8,
-            "9": 9,
-            "the": 10,
-            "digit": 11,
-            "is": 12,
-            "on": 13,
-            "at": 14,
-            "left": 15,
-            "right": 16,
-            "bottom": 17,
-            "top": 18,
-            "of": 19,
-            "image": 20,
-            ".": 21,
+        self.dictionary = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "the": 10,
+            "digit": 11, "is": 12, "on": 13, "at": 14, "left": 15, "right": 16, "bottom": 17, "top": 18, "of": 19, "image": 20, ".": 21,
         }
         self.reverse_dictionary = create_reverse_dictionary(self.dictionary)
         
@@ -222,30 +201,9 @@ class MNISTCaptionsOnly(Dataset):
                 captions.append(line.strip())
         self.mode = mode
         self.captions = captions
-        self.dictionary = {
-                "0": 0,
-                "1": 1,
-                "2": 2,
-                "3": 3,
-                "4": 4,
-                "5": 5,
-                "6": 6,
-                "7": 7,
-                "8": 8,
-                "9": 9,
-                "the": 10,
-                "digit": 11,
-                "is": 12,
-                "on": 13,
-                "at": 14,
-                "left": 15,
-                "right": 16,
-                "bottom": 17,
-                "top": 18,
-                "of": 19,
-                "image": 20,
-                ".": 21,
-            }
+        self.dictionary = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "the": 10,
+            "digit": 11, "is": 12, "on": 13, "at": 14, "left": 15, "right": 16, "bottom": 17, "top": 18, "of": 19, "image": 20, ".": 21,
+        }
     
     def __len__(self):
         return len(self.captions)
