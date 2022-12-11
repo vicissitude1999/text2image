@@ -21,7 +21,6 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.utils
 from torch.utils.data import DataLoader
-from progress.bar import Bar
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
 from model_builder import BUILDER
@@ -66,7 +65,8 @@ def main():
     print(args)
     init_seeds(args.seed, False)
     device = "cuda"
-
+    
+    dataset = sys.argv[1]
     model_type = sys.argv[3]  # clip/base
     args.savedir = os.path.join(args.savedir, sys.argv[4])
     # output directory
@@ -91,8 +91,8 @@ def main():
         writer = SummaryWriter(args.savedir)
     
     # create dataset
-    val_batchsize = 100 # number of samples used to generate images
-    if sys.argv[1] == "coco":
+    val_batchsize = 64 # number of samples used to generate images
+    if dataset == "coco":
         train_data = COCOCaptions(datadir=args.datadir, split="train", mode=model_type)
         sampler = CaptionSameLenBatchSampler(train_data, args.batch_size, seed=args.seed)
         train_queue = DataLoader(dataset=train_data, batch_sampler=sampler)
@@ -100,7 +100,7 @@ def main():
         val_data = COCOCaptions(datadir=args.datadir, split="dev", mode=model_type)
         val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=val_batchsize, seed=args.seed)
         val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
-    elif sys.argv[1] == "mnist":
+    elif dataset == "mnist":
         banned = np.random.choice(10+1, size=12, replace=True)
         
         train_data = MNISTCaptions(datadir=args.datadir, banned=banned, size=10000, train=True, seed=args.seed, mode=model_type)
@@ -129,30 +129,30 @@ def main():
         model.train()
         
         for step, data in enumerate(train_queue):
-            # continue
-            image, caption = data
-            
-            image = image.to(device, non_blocking=True)
-            caption = caption.to(device, non_blocking=True)
+            if step == 0:
+                image, caption = data
+                
+                image = image.to(device, non_blocking=True)
+                caption = caption.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            Lx, Lz = model.loss((image, caption), myloss=False)
-            loss = Lx + Lz
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!
-            optimizer.step()
+                optimizer.zero_grad()
+                Lx, Lz = model.loss((image, caption), myloss=False)
+                loss = Lx + Lz
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!
+                optimizer.step()
 
-            n = caption.size(0)
-            objs.update(loss.item(), n)
-            objs_Lx.update(Lx.item(), n)
-            objs_Lz.update(Lz.item(), n)
+                n = caption.size(0)
+                objs.update(loss.item(), n)
+                objs_Lx.update(Lx.item(), n)
+                objs_Lz.update(Lz.item(), n)
 
-            if step % args.report_freq == 0:                    
-                logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
-                if args.save:
-                    writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
-                    writer.add_scalar("LossBatch/Lx", objs_Lx.avg, epoch * len(train_queue) + step)
-                    writer.add_scalar("LossBatch/Lz", objs_Lz.avg, epoch * len(train_queue) + step)
+                if step % args.report_freq == 0:                    
+                    logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
+                    if args.save:
+                        writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
+                        writer.add_scalar("LossBatch/Lx", objs_Lx.avg, epoch * len(train_queue) + step)
+                        writer.add_scalar("LossBatch/Lz", objs_Lz.avg, epoch * len(train_queue) + step)
         if args.save:
             writer.add_scalar("LossEpoch/L", objs.avg, epoch)
             writer.add_scalar("LossEpoch/Lx", objs_Lx.avg, epoch)
@@ -183,23 +183,26 @@ def main():
         # generate images
         if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
             model.eval()
-            if sys.argv[1] == "coco":
+            if dataset == "coco":
                 val_sampler.reset()
-            elif sys.argv[1] == "mnist":
+            elif dataset == "mnist":
                 val_data.reset()
+            objs_psnr = utils.AvgrageMeter()
             with torch.no_grad():
                 for step, (image, caption) in enumerate(val_queue):
-                    if step == 0 and epoch == 0: # save gt img and caption
+                    # save groundtruth images and captions of the first batch
+                    if step == 0 and epoch == 0:
                         grid = vutils.make_grid(image.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
                                 nrow=int(math.sqrt(val_batchsize)), pad_value=1)
                         vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
                         
                         if model_type == 'clip':
                             continue
-                        with open(Path(args.savedir, f"gt_captions.txt"), "w") as f:
+                        with open(Path(args.savedir, "gt_captions.txt"), "w") as f:
                             for cap in caption:
                                 f.write(val_data.decodeCaption(cap.tolist()) + "\n")
-                    if step == 0: # save generated images
+                    # save generated images of the first batch
+                    if step == 0:
                         caption = caption.to(device)
                         imgs = model.generate(caption)
                         grids = []
@@ -219,8 +222,21 @@ def main():
                             writer="imagemagick",
                         )
                         plt.close("all")
-                    else:
-                        break
+                    # compute psnr
+                    from skimage.metrics import peak_signal_noise_ratio
+                    image = image.reshape(-1, 3, 32, 32).detach().cpu().numpy()
+                    x_generated = imgs[-1].detach().cpu().numpy()
+                    
+                    psnr_list = np.zeros(image.shape[0])
+                    for i in range(image.shape[0]):
+                        true_img = image[i]
+                        test_img = x_generated[i]
+                        psnr = peak_signal_noise_ratio(true_img, test_img)
+                        psnr_list[i] = psnr
+                    test_psnr = psnr_list.mean()
+                    objs_psnr.update(test_psnr, image.shape[0])
+                    if args.save:
+                        writer.add_scalar("PSNR", objs_psnr.avg, epoch * len(val_queue) + step)
 
 
 if __name__ == "__main__":
