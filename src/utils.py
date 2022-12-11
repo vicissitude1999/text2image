@@ -41,6 +41,7 @@ def create_exp_dir(path, scripts_to_save=None):
 
 
 def save_checkpoint(state, is_best, save):
+    os.makedirs(save, exist_ok=True)
     filename = os.path.join(save, "current.ckpt")
     torch.save(state, filename)
     if is_best:

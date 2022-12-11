@@ -14,16 +14,17 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from pathlib import Path
 from addict import Dict
+from tqdm import tqdm
 
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.utils
 from torch.utils.data import DataLoader
+from progress.bar import Bar
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
-
-from model import AlignDraw, AlignDrawClip
+from model_builder import BUILDER
 import utils
 from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
 
@@ -67,7 +68,7 @@ def main():
     device = "cuda"
 
     model_type = sys.argv[3]  # clip/base
-
+    args.savedir = os.path.join(args.savedir, sys.argv[4])
     # output directory
     if args.save:
         args.savedir = "{}/{}".format(args.savedir, time.strftime("%Y%m%d-%H%M%S"))
@@ -107,21 +108,10 @@ def main():
         
         val_data = MNISTCaptions(datadir=args.datadir, banned=[], size=val_batchsize, train=False, seed=args.seed+1, mode=model_type)
         val_queue = DataLoader(dataset=val_data, batch_size=val_batchsize, shuffle=False, drop_last=False)
-        
-    aligndraw = AlignDrawClip if model_type == "clip" else AlignDraw
+    # model name
+    aligndraw = BUILDER[sys.argv[4]]
     model = aligndraw(
-            args.model[0].runSteps,
-            args.model[0].dimReadAttent,
-            args.model[0].dimWriteAttent,
-            args.model[0].dimA,
-            args.model[0].dimB,
-            args.model[0].channels,
-            args.model[0].dimY,
-            args.model[0].dimLangRNN,
-            args.model[0].dimRNNEnc,
-            args.model[0].dimZ,
-            args.model[0].dimRNNDec,
-            args.model[0].dimAlign,
+            args.model[0],
             device=device,
         ).to(device)
     model.apply(initialize_weights)
@@ -130,9 +120,8 @@ def main():
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[args.reduceLRAfter], gamma=0.1)
 
     best_obj = float("inf")
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs)):
         logging.info(f"[epoch] {epoch:d}/{args.epochs}")
-
         # train
         objs = utils.AvgrageMeter()
         objs_Lx = utils.AvgrageMeter()

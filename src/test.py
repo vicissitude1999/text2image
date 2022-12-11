@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 import torchvision.utils as vutils
 
 from dataset import COCOCaptionsOnly, CaptionSameLenBatchSampler, MNISTCaptionsOnly
-from model import AlignDraw, AlignDrawClip
+from model_builder import BUILDER
 import utils
 
 
@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default="mnist")
     parser.add_argument("--batch_size", type=int, default=100)
     parser.add_argument("--model_type", type=str, default="base")
+    parser.add_argument("--name", type=str, default="AlignDraw")
     
     opt = parser.parse_args()
     
@@ -78,20 +79,10 @@ def main():
         val_data = MNISTCaptionsOnly(caption_path=args.caption_path, mode=args.model_type)
         val_queue = DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
         
-    aligndraw = AlignDrawClip if args.model_type == "clip" else AlignDraw
+    # model name
+    aligndraw = BUILDER[args.name]
     model = aligndraw(
-            args.model[0].runSteps,
-            args.model[0].dimReadAttent,
-            args.model[0].dimWriteAttent,
-            args.model[0].dimA,
-            args.model[0].dimB,
-            args.model[0].channels,
-            args.model[0].dimY,
-            args.model[0].dimLangRNN,
-            args.model[0].dimRNNEnc,
-            args.model[0].dimZ,
-            args.model[0].dimRNNDec,
-            args.model[0].dimAlign,
+            args.model[0],
             device=device,
         ).to(device)
     ckpt = torch.load(Path(args.train_dir, "current.ckpt"))

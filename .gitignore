@@ -161,5 +161,7 @@ cython_debug/
 
 data/
 outputs/
+base_results/
+midway/
 .vscode
 *.zip
