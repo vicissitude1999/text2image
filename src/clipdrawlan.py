@@ -12,7 +12,7 @@ import utils
 # dimZ: latent image dimension
 # dimRNNDec: LSTM output dimension
 # dimAlign: alignment dimension
-class AlignDrawClipCat(nn.Module):
+class AlignDrawClipLanv1(nn.Module):
     def __init__(
         self,
         args,
@@ -72,8 +72,10 @@ class AlignDrawClipCat(nn.Module):
 
         with torch.no_grad():
             clip_feat = self.clip.encode_text(caption).to(torch.float32)
-
-        return h_t_lang, clip_feat
+        n = h_t_lang.shape[0]
+        clip_feat = clip_feat.unsqueeze(0).repeat(n, 1, 1)
+        fused_feat = h_t_lang + clip_feat
+        return fused_feat
     
     # def text_encoder(self, caption):
     #     # seq * B * dimY
@@ -82,7 +84,7 @@ class AlignDrawClipCat(nn.Module):
     #     return text_features.to(torch.float32)
 
 
-    def alignment(self, clip_feat, h_dec_prev, h_t_lang):
+    def alignment(self, h_dec_prev, h_t_lang):
         ##### compute alignments
 
         # seq * B * dimAlign
@@ -97,7 +99,7 @@ class AlignDrawClipCat(nn.Module):
         # B * (2*dimLangRNN)
         s_t = (alpha[:, :, None] * h_t_lang).sum(axis=0)
 
-        return s_t + clip_feat
+        return s_t
 
     def forward(self, x):
         img, caption = x
@@ -113,7 +115,7 @@ class AlignDrawClipCat(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device, requires_grad=True)
 
-        lang_feat, clip_feat = self.text_encoder(caption)
+        lang_feat = self.text_encoder(caption)
 
         for t in range(self.T):
             c_prev = (
@@ -135,7 +137,7 @@ class AlignDrawClipCat(nn.Module):
             self.mus[t], self.logvars[t] = mu, logvar
 
             # eq. 3 -> 4
-            s_t = self.alignment(clip_feat, h_dec_prev, lang_feat)
+            s_t = self.alignment(h_dec_prev, lang_feat)
             h_dec, dec_state = self.decoder(
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )
@@ -205,7 +207,7 @@ class AlignDrawClipCat(nn.Module):
         mu_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
         logvar_prior = torch.zeros(batch_size, self.dimZ, device=self.device)
 
-        lang_feat, clip_feat = self.text_encoder(caption)
+        lang_feat = self.text_encoder(caption)
 
         for t in range(self.T):
             c_prev = (
@@ -214,7 +216,7 @@ class AlignDrawClipCat(nn.Module):
                 else torch.zeros(batch_size, self.A * self.B * self.channels, device=self.device)
             )
             z_t = mu_prior + torch.exp(0.5 * logvar_prior) * torch.randn_like(mu_prior)
-            s_t = self.alignment(clip_feat, h_dec_prev, lang_feat)
+            s_t = self.alignment(h_dec_prev, lang_feat)
             h_dec, dec_state = self.decoder(
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )

@@ -4,7 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     // Train
     // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train.py coco tools/coco-captions-32x32.json base AlignDraw
-    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train.py coco toolscoco-captions-clip-cat.json clip AlignDrawClipCat
+    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client src/train.py mnist tools/mnist-captions-clip.json clip AlignDrawClipLan_v1
 
     "version": "0.2.0",
     "configurations": [

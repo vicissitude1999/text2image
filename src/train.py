@@ -129,30 +129,29 @@ def main():
         model.train()
         
         for step, data in enumerate(train_queue):
-            if step == 0:
-                image, caption = data
-                
-                image = image.to(device, non_blocking=True)
-                caption = caption.to(device, non_blocking=True)
+            image, caption = data
+            
+            image = image.to(device, non_blocking=True)
+            caption = caption.to(device, non_blocking=True)
 
-                optimizer.zero_grad()
-                Lx, Lz = model.loss((image, caption), myloss=False)
-                loss = Lx + Lz
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!
-                optimizer.step()
+            optimizer.zero_grad()
+            Lx, Lz = model.loss((image, caption), myloss=False)
+            loss = Lx + Lz
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!
+            optimizer.step()
 
-                n = caption.size(0)
-                objs.update(loss.item(), n)
-                objs_Lx.update(Lx.item(), n)
-                objs_Lz.update(Lz.item(), n)
+            n = caption.size(0)
+            objs.update(loss.item(), n)
+            objs_Lx.update(Lx.item(), n)
+            objs_Lz.update(Lz.item(), n)
 
-                if step % args.report_freq == 0:                    
-                    logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
-                    if args.save:
-                        writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
-                        writer.add_scalar("LossBatch/Lx", objs_Lx.avg, epoch * len(train_queue) + step)
-                        writer.add_scalar("LossBatch/Lz", objs_Lz.avg, epoch * len(train_queue) + step)
+            if step % args.report_freq == 0:                    
+                logging.info(f"train {step:03d}/{len(train_queue):03d} loss {objs.avg:.3f} Lx {objs_Lx.avg:.3f} Lz {objs_Lz.avg:.3f}")
+                if args.save:
+                    writer.add_scalar("LossBatch/L", objs.avg, epoch * len(train_queue) + step)
+                    writer.add_scalar("LossBatch/Lx", objs_Lx.avg, epoch * len(train_queue) + step)
+                    writer.add_scalar("LossBatch/Lz", objs_Lz.avg, epoch * len(train_queue) + step)
         if args.save:
             writer.add_scalar("LossEpoch/L", objs.avg, epoch)
             writer.add_scalar("LossEpoch/Lx", objs_Lx.avg, epoch)

@@ -1,10 +1,10 @@
 from aligndraw import AlignDraw # basemodels
 from clipdraw import AlignDrawClip # basemodels
-from clipdrawcat import AlignDrawClipCat # basemodels
+from clipdrawlan import AlignDrawClipLanv1 # basemodels
 
 
 BUILDER = {
     'AlignDraw': AlignDraw,
     'AlignDrawClip': AlignDrawClip, # add
-    'AlignDrawClipCat': AlignDrawClipCat # cat
+    'AlignDrawClipLan_v1': AlignDrawClipLanv1 # cat
 }
