@@ -40,11 +40,17 @@ To train COCO, run
 bash tools/train.sh # AlignDRAW
 bash tools/train_clip.sh #clip_AlignDRAW
 ```
-To test COCO, run
+To validate COCO, run
 ```
-python src/test.py --train_dir --caption_path --dataset --batch_size --model_type
+python src/test.py --train_dir --dataset --batch_size --model_type --name
 ```
-Examples are in tools/test.sh
+To test COCO on any captions, provide a file of captions like tools/captions_mnist.txt
+and run 
+```
+python src/test.py --mode test --train_dir --caption_path --dataset --batch_size --model_type --name
+```
+Make sure that all captions in the file have the same length.
+Some examples are in tools/test.sh
 
 ### Reference
 
