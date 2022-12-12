@@ -51,8 +51,9 @@ class AlignDrawClipLanv2(nn.Module):
         self.w_v_align = nn.Linear(args.dimAlign, 1)
 
         self.decoder = nn.LSTMCell(args.dimZ + 2 * args.dimLangRNN, args.dimRNNDec)
-        self.w_dec_attn = nn.Linear(args.dimRNNDec, 5)
-        self.w_dec = nn.Linear(args.dimRNNDec, self.N * self.N * args.channels)
+        self.w_read_attn = nn.Linear(args.dimRNNDec, 5)
+        self.w_write_atten = nn.Linear(args.dimRNNDec, 5)
+        self.w_write = nn.Linear(args.dimRNNDec, self.N * self.N * args.channels) # DRAW 28
 
         # records of canvas matrices, and mu, logvars (used to 0compute loss)
         self.cs = [0] * self.T
@@ -226,42 +227,64 @@ class AlignDrawClipLanv2(nn.Module):
                 torch.cat((z_t, s_t), 1), (h_dec_prev, dec_state)
             )
             self.cs[t] = c_prev + self.write(h_dec)
-
+            
+            mu_prior = torch.tanh(self.w_mu_prior(h_dec))
+            logvar_prior = torch.tanh(self.w_logvar_prior(h_dec))
             h_dec_prev = h_dec
 
         imgs = []
         for img in self.cs:
-            img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.B, self.A))
-            grid = vutils.make_grid(img, nrow=int(math.sqrt(batch_size)), pad_value=1)
-            imgs.append(grid)
+            img = torch.sigmoid(img.detach().cpu().view(-1, self.channels, self.A, self.B))
+            imgs.append(img)
 
         return imgs
 
-    ######## write
-    def write(self, h_dec=0):
-        w = self.w_dec(h_dec)
+######## write
+    def write(self, h_dec):
+        W = self.w_write(h_dec)
         if self.channels == 3:
-            w = w.view(self.batch_size, 3, self.N, self.N)
+            W = W.view(self.batch_size, 3, self.N, self.N)
         elif self.channels == 1:
-            w = w.view(self.batch_size, self.N, self.N)
-        (Fx, Fy), gamma = self.attn_window(h_dec)
+            W = W.view(self.batch_size, self.N, self.N)
+        
+        params = self.w_write_atten(h_dec)
+        gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
+        
+        gx = (self.A + 1) / 2 * (gx_ + 1)  # 22
+        gy = (self.B + 1) / 2 * (gy_ + 1)  # 23
+        delta = (max(self.A, self.B) - 1) / (self.N - 1) * torch.exp(log_delta)  # 24
+        sigma2 = torch.exp(log_sigma_2)
+        gamma = torch.exp(log_gamma)
+        
+        Fx, Fy = self.filterbank(gx, gy, sigma2, delta)
+        
         Fyt = Fy.transpose(self.channels, 2)
 
-        wr = torch.matmul(Fyt, torch.matmul(w, Fx))
+        wr = torch.matmul(Fyt, torch.matmul(W, Fx))
         wr = wr.view(self.batch_size, self.A * self.B * self.channels)
 
         return wr / gamma.view(-1, 1).expand_as(wr)
 
     ######## read
     def read(self, x, x_hat, h_dec_prev):
-        (Fx, Fy), gamma = self.attn_window(h_dec_prev)
-
+        params = self.w_read_attn(h_dec_prev)
+        gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
+        
+        gx = (self.A + 1) / 2 * (gx_ + 1)  # 22
+        gy = (self.B + 1) / 2 * (gy_ + 1)  # 23
+        delta = (max(self.A, self.B) - 1) / (self.N - 1) * torch.exp(log_delta)  # 24
+        sigma2 = torch.exp(log_sigma_2)
+        gamma = torch.exp(log_gamma)
+        
+        Fx, Fy = self.filterbank(gx, gy, sigma2, delta)
+        
         def filter_img(img, Fx, Fy, gamma, A, B, channels, N):
             Fxt = Fx.transpose(channels, 2)
             if channels == 3:
                 img = img.view(-1, 3, B, A)
             elif channels == 1:
                 img = img.view(-1, B, A)
+            # batch, 3, N, B @ batch, 3, B, A @ batch, 3, A, N
             glimpse = torch.matmul(Fy, torch.matmul(img, Fxt))
             glimpse = glimpse.view(-1, N * N * channels)
 
@@ -272,40 +295,36 @@ class AlignDrawClipLanv2(nn.Module):
 
         return torch.cat((x, x_hat), 1)
 
-    ########## attention
-    def attn_window(self, h_dec):
-        params = self.w_dec_attn(h_dec)
-        gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
 
-        gx = (self.A + 1) / 2 * (gx_ + 1)  # 22
-        gy = (self.B + 1) / 2 * (gy_ + 1)  # 23
-        delta = (max(self.A, self.B) - 1) / (self.N - 1) * torch.exp(log_delta)  # 24
-        sigma2 = torch.exp(log_sigma_2)
-        gamma = torch.exp(log_gamma)
-
-        return self.filterbank(gx, gy, sigma2, delta), gamma
-
-    def filterbank(self, gx, gy, sigma2, delta, epsilon=1e-9):
+    def filterbank(self, gx, gy, sigma2, delta, epsilon=1e-4):
         grid_i = torch.arange(0.0, self.N, device=self.device, requires_grad=True).view(1, -1)
-
+        
         # Equation 19.
+        # gx: batch, 1
+        # grid_i: 1, N
+        # mu_x: batch, N
         mu_x = gx + (grid_i - self.N / 2 - 0.5) * delta
+        
         # Equation 20.
         mu_y = gy + (grid_i - self.N / 2 - 0.5) * delta
 
         a = torch.arange(0.0, self.A, device=self.device, requires_grad=True).view(1, 1, -1)
         b = torch.arange(0.0, self.B, device=self.device, requires_grad=True).view(1, 1, -1)
-
+        
+        # a: 1, 1, A
+        # batch, N, 1
         mu_x = mu_x.view(-1, self.N, 1)
         mu_y = mu_y.view(-1, self.N, 1)
         sigma2 = sigma2.view(-1, 1, 1)
-
+        
+        # batch, N, A
         Fx = torch.exp(-torch.pow(a - mu_x, 2) / (2 * sigma2))
         Fy = torch.exp(-torch.pow(b - mu_y, 2) / (2 * sigma2))
 
         Fx = Fx / (Fx.sum(2, True).expand_as(Fx) + epsilon)
         Fy = Fy / (Fy.sum(2, True).expand_as(Fy) + epsilon)
-
+        
+        # batch, 3, N, A
         if self.channels == 3:
             Fx = Fx.view(Fx.size(0), 1, Fx.size(1), Fx.size(2))
             Fx = Fx.repeat(1, 3, 1, 1)
@@ -314,3 +333,4 @@ class AlignDrawClipLanv2(nn.Module):
             Fy = Fy.repeat(1, 3, 1, 1)
 
         return Fx, Fy
+    
