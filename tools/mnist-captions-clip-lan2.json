@@ -1,0 +1,28 @@
+{
+    "model": [
+        {
+            "dimY": 49408,
+            "dimLangRNN": 256,
+            "dimAlign": 512,
+            "dimA": 60,
+            "dimB": 60,
+            "channels": 1,
+            "dimReadAttent": 8,
+            "dimWriteAttent": 8,
+            "dimRNNEnc": 300,
+            "dimRNNDec": 300,
+            "dimZ": 150,
+            "runSteps": 32
+        }
+    ],
+    "seed": 5,
+    "save": true,
+    "savedir": "outputs/mnist_clip",
+    "lr": 0.001,
+    "epochs": 150,
+    "batch_size": 100,
+    "report_freq": 20,
+    "reduceLRAfter": 110,
+    "pathToWeights": "None",
+    "datadir": "data/"
+}

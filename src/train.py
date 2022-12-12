@@ -129,6 +129,7 @@ def main():
         model.train()
         
         for step, data in enumerate(train_queue):
+            # continue
             image, caption = data
             
             image = image.to(device, non_blocking=True)
@@ -180,62 +181,63 @@ def main():
         )
 
         # generate images
-        if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
-            model.eval()
-            if dataset == "coco":
-                val_sampler.reset()
-            elif dataset == "mnist":
-                val_data.reset()
-            objs_psnr = utils.AvgrageMeter()
-            with torch.no_grad():
-                for step, (image, caption) in enumerate(val_queue):
-                    # save groundtruth images and captions of the first batch
-                    if step == 0 and epoch == 0:
-                        grid = vutils.make_grid(image.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
-                                nrow=int(math.sqrt(val_batchsize)), pad_value=1)
-                        vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
+        # if epoch == 0 or (epoch + 1) % (args.epochs // 5) == 0 or (epoch + 1) == args.epochs:
+        # if True:
+        #     model.eval()
+        #     if dataset == "coco":
+        #         val_sampler.reset()
+        #     elif dataset == "mnist":
+        #         val_data.reset()
+        #     objs_psnr = utils.AvgrageMeter()
+        #     with torch.no_grad():
+        #         for step, (image, caption) in enumerate(val_queue):
+        #             # save groundtruth images and captions of the first batch
+        #             if step == 0 and epoch == 0:
+        #                 grid = vutils.make_grid(image.view(-1, args.model[0].channels, args.model[0].dimB, args.model[0].dimA),
+        #                         nrow=int(math.sqrt(val_batchsize)), pad_value=1)
+        #                 vutils.save_image(grid, Path(args.savedir, "gt_imgs.jpg"))
                         
-                        if model_type == 'clip':
-                            continue
-                        with open(Path(args.savedir, "gt_captions.txt"), "w") as f:
-                            for cap in caption:
-                                f.write(val_data.decodeCaption(cap.tolist()) + "\n")
-                    # save generated images of the first batch
-                    if step == 0:
-                        caption = caption.to(device)
-                        imgs = model.generate(caption)
-                        grids = []
+        #                 if model_type == 'clip':
+        #                     continue
+        #                 with open(Path(args.savedir, "gt_captions.txt"), "w") as f:
+        #                     for cap in caption:
+        #                         f.write(val_data.decodeCaption(cap.tolist()) + "\n")
+        #             # save generated images of the first batch
+        #             caption = caption.to(device)
+        #             imgs = model.generate(caption)
+        #             grids = []
+        #             if step == 0:
+        #                 for img in imgs:
+        #                     grids.append(vutils.make_grid(img, nrow=int(math.sqrt(args.batch_size)), pad_value=1))
                         
-                        for img in imgs:
-                            grids.append(vutils.make_grid(img, nrow=int(math.sqrt(args.batch_size)), pad_value=1))
+        #                 vutils.save_image(grids[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
                         
-                        vutils.save_image(grids[-1], Path(args.savedir, f"epoch_{epoch:d}.jpg"))
-                        
-                        fig = plt.figure(figsize=(16, 16))
-                        plt.axis("off")
-                        ims = [[plt.imshow(np.transpose(grid, (1, 2, 0)), animated=True)] for grid in grids]
-                        anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
-                        anim.save(
-                            Path(args.savedir, f"epoch_{epoch:d}.gif"),
-                            dpi=100,
-                            writer="imagemagick",
-                        )
-                        plt.close("all")
-                    # compute psnr
-                    from skimage.metrics import peak_signal_noise_ratio
-                    image = image.reshape(-1, 3, 32, 32).detach().cpu().numpy()
-                    x_generated = imgs[-1].detach().cpu().numpy()
+        #                 fig = plt.figure(figsize=(16, 16))
+        #                 plt.axis("off")
+        #                 ims = [[plt.imshow(np.transpose(grid, (1, 2, 0)), animated=True)] for grid in grids]
+        #                 anim = animation.ArtistAnimation(fig, ims, interval=500, repeat_delay=1000, blit=True)
+        #                 anim.save(
+        #                     Path(args.savedir, f"epoch_{epoch:d}.gif"),
+        #                     dpi=100,
+        #                     writer="imagemagick",
+        #                 )
+        #                 plt.close("all")
+        #             # compute psnr
+        #             from skimage.metrics import peak_signal_noise_ratio
+        #             if dataset == 'mnist':
+        #                 image = image.reshape(-1, 1, 60, 60).detach().cpu().numpy()
+        #             x_generated = imgs[-1].detach().cpu().numpy()
                     
-                    psnr_list = np.zeros(image.shape[0])
-                    for i in range(image.shape[0]):
-                        true_img = image[i]
-                        test_img = x_generated[i]
-                        psnr = peak_signal_noise_ratio(true_img, test_img)
-                        psnr_list[i] = psnr
-                    test_psnr = psnr_list.mean()
-                    objs_psnr.update(test_psnr, image.shape[0])
-                    if args.save:
-                        writer.add_scalar("PSNR", objs_psnr.avg, epoch * len(val_queue) + step)
+        #             psnr_list = np.zeros(image.shape[0])
+        #             for i in range(image.shape[0]):
+        #                 true_img = image[i]
+        #                 test_img = x_generated[i]
+        #                 psnr = peak_signal_noise_ratio(true_img, test_img)
+        #                 psnr_list[i] = psnr
+        #             test_psnr = psnr_list.mean()
+        #             objs_psnr.update(test_psnr, image.shape[0])
+        #             if args.save:
+        #                 writer.add_scalar("PSNR", objs_psnr.avg, epoch * len(val_queue) + step)
 
 
 if __name__ == "__main__":
