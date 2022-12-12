@@ -47,10 +47,8 @@ class AlignDraw(nn.Module):
         self.w_v_align = nn.Linear(args.dimAlign, 1)
 
         self.decoder = nn.LSTMCell(args.dimZ + 2 * args.dimLangRNN, args.dimRNNDec)
-        
-        self.w_read_attn = nn.Linear(args.dimRNNDec, 5)
-        self.w_write_atten = nn.Linear(args.dimRNNDec, 5)
-        self.w_write = nn.Linear(args.dimRNNDec, self.N * self.N * args.channels) # DRAW 28
+        self.w_dec_attn = nn.Linear(args.dimRNNDec, 5)
+        self.w_dec = nn.Linear(args.dimRNNDec, self.N * self.N * args.channels)
 
         # records of canvas matrices, and mu, logvars (used to 0compute loss)
         # make sure they don't accumulate over different batches
@@ -219,13 +217,13 @@ class AlignDraw(nn.Module):
 
     ######## write
     def write(self, h_dec):
-        W = self.w_write(h_dec)
+        W = self.w_dec(h_dec)
         if self.channels == 3:
             W = W.view(self.batch_size, 3, self.N, self.N)
         elif self.channels == 1:
             W = W.view(self.batch_size, self.N, self.N)
         
-        params = self.w_write_atten(h_dec)
+        params = self.w_dec_attn(h_dec)
         gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
         
         gx = (self.A + 1) / 2 * (gx_ + 1)  # 22
@@ -245,7 +243,7 @@ class AlignDraw(nn.Module):
 
     ######## read
     def read(self, x, x_hat, h_dec_prev):
-        params = self.w_read_attn(h_dec_prev)
+        params = self.w_dec_attn(h_dec_prev)
         gx_, gy_, log_sigma_2, log_delta, log_gamma = params.split(1, 1)  # 21
         
         gx = (self.A + 1) / 2 * (gx_ + 1)  # 22

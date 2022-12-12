@@ -16,11 +16,11 @@
         }
     ],
     "seed": 5,
-    "save": false,
+    "save": true,
     "savedir": "outputs/mnist",
     "lr": 0.001,
     "epochs": 150,
-    "batch_size": 100,
+    "batch_size": 256,
     "report_freq": 20,
     "reduceLRAfter": 110,
     "pathToWeights": "None",

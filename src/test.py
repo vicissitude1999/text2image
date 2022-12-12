@@ -68,12 +68,7 @@ def main():
     if args.dataset == "coco":
         val_data = COCOCaptionsOnly(caption_path=args.caption_path, datadir=args.datadir, mode=args.model_type)
         val_sampler = CaptionSameLenBatchSampler(val_data, batch_size=args.batch_size, seed=args.seed)
-        # need to save the original order
-        # TODO make it work for input captions with difference lengths
-        # batch_indices = []
-        # for ind in val_sampler:
-        #     batch_indices.append(ind)
-        # val_queue = DataLoader(dataset=val_data, batch_sampler=val_sampler)
+        # Input caption file needs to have equal length captions
         val_queue = DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=False)
     elif args.dataset == "mnist":
         val_data = MNISTCaptionsOnly(caption_path=args.caption_path, mode=args.model_type)

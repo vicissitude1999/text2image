@@ -1,7 +1,7 @@
-python src/test.py --train_dir outputs/mnist/20221101-190524 \
+python src/test.py --train_dir outputs/mnist/AlignDraw/20221211-220930 \
 --caption_path tools/captions_mnist.txt \
 --dataset mnist \
---batch_size 25 \
+--batch_size 100 \
 --model_type base
 
 python src/test.py --train_dir outputs/coco32/20221101-200132 \
