@@ -116,8 +116,7 @@ def main():
         ).to(device)
     model.apply(initialize_weights)
     
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=args.lr)
-    # optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
+    optimizer = torch.optim.RMSprop(params=model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[args.reduceLRAfter], gamma=0.1)
 
     best_obj = float("inf")
