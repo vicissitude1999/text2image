@@ -135,7 +135,7 @@ def main():
             caption = caption.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            Lx, Lz = model.loss((image, caption), myloss=False)
+            Lx, Lz = model.loss((image, caption))
             loss = Lx + Lz
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 10)  # clip norm before step!

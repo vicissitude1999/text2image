@@ -157,23 +157,21 @@ class AlignDrawClipLanv2(nn.Module):
             h_enc_prev = h_enc
             h_dec_prev = h_dec
 
-    def loss(self, x, myloss=False):
-        img, caption = x
-        self.forward(x)
+        def loss(self, x):
+            img, caption = x
+            self.forward(x)
 
-        criterion = nn.BCELoss()
-        x_recon = torch.sigmoid(self.cs[-1])
-        # reconstruction loss
-        Lx = criterion(x_recon, img) * self.A * self.B * self.channels
-        # kl loss
-        Lz = 0  # technically it should be a tensor with Size([batch_size])
-        for t in range(self.T):
-            # kl loss in DRAW (assuming P(z) ~ N(0, I))
-            # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t], dim=1) - self.T)
-
-            # The implementation of the official repo seems to be the following equation. I think it's wrong.
-            # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
-            if not myloss:
+            criterion = nn.BCELoss()
+            x_recon = torch.sigmoid(self.cs[-1])
+            # reconstruction loss
+            Lx = criterion(x_recon, img) * self.A * self.B * self.channels
+            # kl loss
+            Lz = 0  # technically it should be a tensor with Size([batch_size])
+            for t in range(self.T):
+                # kl loss in DRAW (assuming P(z) ~ N(0, I))
+                # kl = 0.5*(torch.sum(self.mus[t]**2 + torch.exp(self.logvars[t]) - self.logvars[t], dim=1) - self.T)
+                
+                # for each t, kl loss = ((mu - mu_prior)^2 + var) / var_prior - (logvar - logvar_prior) - 1
                 kl = 0.5 * (
                     torch.sum(
                         ((self.mus[t] - self.mus_prior[t]) ** 2 + torch.exp(self.logvars[t]))
@@ -183,26 +181,10 @@ class AlignDrawClipLanv2(nn.Module):
                     )
                     - self.T
                 )
-            else:
-            # I think the following is correct.
-            # for each t, kl loss = (mu - mu_prior)^2 + var / var_prior - (logvar - logvar_prior) - 1
-            # This can be derived from computing E_z~q [ln q(z|x) - ln p(z)]
-
-            # reminder: in vae, the objective is to min_{theta, phi} E_z~q [ln q_phi(z|x) - ln p_theta(z)   - ln p_theta(x|z)]
-            # the former 2 is called kl loss, and the last is reconstruction loss
-                kl = 0.5 * (
-                    torch.sum(
-                        (self.mus[t] - self.mus_prior[t]) ** 2
-                        + torch.exp(self.logvars[t] - self.logvars_prior[t])
-                        - (self.logvars[t] - self.logvars_prior[t]), dim=1
-                    )
-                    - self.T
-                )
-            Lz += kl
-
-        Lz = torch.mean(Lz)
-
-        return Lx, Lz
+                Lz += kl
+            Lz = torch.mean(Lz)
+            
+            return Lx, Lz
 
     def generate(self, caption):
         batch_size = caption.size(0)

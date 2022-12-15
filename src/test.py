@@ -3,7 +3,6 @@ import time
 import json
 import math
 import random
-import h5py
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,8 +16,7 @@ import torch.utils
 from torch.utils.data import DataLoader
 import torchvision.utils as vutils
 
-from dataset import COCOCaptionsOnly, CaptionSameLenBatchSampler, MNISTCaptionsOnly
-from dataset import COCOCaptions, CaptionSameLenBatchSampler, MNISTCaptions
+from dataset import *
 from model_builder import BUILDER
 import utils
 
@@ -48,26 +46,6 @@ def init_seeds(seed=0, cuda_deterministic=False):
     else:  # faster, less reproducible
         cudnn.deterministic = False
         cudnn.benchmark = True
-
-
-def load_weights(params, path, num_conv):
-    with h5py.File(path, "r") as hdf5:
-        params["skipthought2image"] = np.copy(hdf5["skipthought2image"])
-        params["skipthought2image-bias"] = np.copy(hdf5["skipthought2image-bias"])
-
-        for i in range(num_conv):
-            params[f"W_conv{i}"] = np.copy(hdf5["W_conv{}".format(i)])
-            params[f"b_conv{i}"] = np.copy(hdf5["b_conv{}".format(i)])
-
-            # Flip w, h axes
-            params[f"W_conv{i}"] = params[f"W_conv{i}"][:,:,::-1,::-1]
-
-            w = np.abs(np.copy(hdf5[f"W_conv{i}"]))
-            print(f"W_conv{i}", np.min(w), np.mean(w), np.max(w))
-            b = np.abs(np.copy(hdf5[f"b_conv{i}"]))
-            print(f"b_conv{i}", np.min(b), np.mean(b), np.max(b))
-
-    return params
 
 
 def main():
